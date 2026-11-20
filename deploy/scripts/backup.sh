@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Back up the shop: the database, and the uploaded product images.
 #
-#   sudo /srv/maraton-parts/deploy/scripts/backup.sh                 # nightly, by maraton-parts-backup.timer
-#   sudo /srv/maraton-parts/deploy/scripts/backup.sh --label pre-deploy --db-only
+#   sudo bash /srv/maraton-parts/deploy/scripts/backup.sh                 # nightly, by maraton-parts-backup.timer
+#   sudo bash /srv/maraton-parts/deploy/scripts/backup.sh --label pre-deploy --db-only
 #
 # Every dump is checked before it is trusted - the gzip stream is whole,
 # mysqldump got to its last line, and (unless BACKUP_VERIFY=false) it is

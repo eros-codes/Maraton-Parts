@@ -47,8 +47,7 @@ sudo useradd --system --create-home --shell /usr/sbin/nologin maratonparts
 sudo mkdir -p /srv/maraton-parts
 # ... کد را اینجا بگذار (git clone یا آپلود) ...
 sudo chown -R maratonparts:maratonparts /srv/maraton-parts
-# اگر کد را آپلود کردی (نه clone)، اجرایی‌بودن اسکریپت‌ها از دست رفته است:
-sudo chmod +x /srv/maraton-parts/deploy/scripts/*.sh
+# اسکریپت‌ها همیشه با `bash` اجرا می‌شوند، پس اجرایی‌بودنشان (chmod +x) مهم نیست.
 
 # تصاویر آپلودشده، بیرون از پوشه‌ی کد تا استقرار بعدی دستشان نزند.
 # هر دو سطح باید مال maratonparts باشند - `install -d` فقط پوشه‌ی آخر را
@@ -124,7 +123,7 @@ sudo systemctl enable --now maraton-parts-backup.timer
 ## ۶. اولین استقرار و داده‌ی دمو
 
 ```bash
-sudo /srv/maraton-parts/deploy/scripts/deploy.sh
+sudo bash /srv/maraton-parts/deploy/scripts/deploy.sh
 ```
 
 این اسکریپت بک‌اند و هر دو فرانت را build می‌کند، مایگریشن‌ها را اجرا می‌کند و سرویس را بالا می‌آورد. در production اسکیما هرگز خودکار عوض نمی‌شود، پس این تنها راه به‌روز شدن دیتابیس است.
@@ -132,7 +131,7 @@ sudo /srv/maraton-parts/deploy/scripts/deploy.sh
 بعد یک بار داده‌ی دمو را بریز (همان اسکریپتی که هر شب اجرا می‌شود):
 
 ```bash
-sudo /srv/maraton-parts/deploy/scripts/reset-demo.sh
+sudo bash /srv/maraton-parts/deploy/scripts/reset-demo.sh
 ```
 
 ---
@@ -221,13 +220,13 @@ systemctl list-timers 'maraton-parts-*'             # زمان اجرای بعد
 **فقط امتحان** (به دیتابیس اصلی دست نمی‌زند):
 
 ```bash
-sudo /srv/maraton-parts/deploy/scripts/restore.sh --check /var/backups/maraton-parts/daily-db-20261011-033000.sql.gz
+sudo bash /srv/maraton-parts/deploy/scripts/restore.sh --check /var/backups/maraton-parts/daily-db-20261011-033000.sql.gz
 ```
 
 **بازگردانی واقعی:** کل دیتابیس (و با `--uploads` تصاویر هم) با نسخه‌ی پشتیبان جایگزین می‌شود. اسکریپت قبل از شروع اسم دیتابیس را از تو می‌پرسد:
 
 ```bash
-sudo /srv/maraton-parts/deploy/scripts/restore.sh \
+sudo bash /srv/maraton-parts/deploy/scripts/restore.sh \
   /var/backups/maraton-parts/daily-db-20261011-033000.sql.gz \
   --uploads /var/backups/maraton-parts/daily-uploads-20261011-033000.tar.gz
 ```
@@ -274,7 +273,7 @@ sudo rclone --config /etc/maraton-parts/rclone.conf copy maraton-parts-crypt:nig
 ## به‌روزرسانی بعدی
 
 ```bash
-sudo /srv/maraton-parts/deploy/scripts/deploy.sh
+sudo bash /srv/maraton-parts/deploy/scripts/deploy.sh
 ```
 
 قبل از مایگریشن‌ها یک پشتیبان `pre-deploy` گرفته می‌شود (قدم ۹).
@@ -311,7 +310,7 @@ sudo systemctl disable --now maraton-parts-demo-reset.timer
 در آخر این را اجرا کن. همه‌ی موارد بالا را یکی‌یکی بررسی می‌کند: تنظیمات، پشتیبان‌ها و تازگی‌شان، حساب‌های دمو و HTTPS. تا وقتی خطی با `[FAIL]` در خروجی هست، سفارش واقعی نگیر:
 
 ```bash
-sudo /srv/maraton-parts/deploy/scripts/launch-check.sh
+sudo bash /srv/maraton-parts/deploy/scripts/launch-check.sh
 ```
 
 یک خرید واقعی با مبلغ کم هم انجام بده و بعد از پنل لغوش کن. فقط این کار ثابت می‌کند که درگاه واقعی، پیامک و بازگشت پول به کیف پول از اول تا آخر کار می‌کنند.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build and release Maraton Parts on the server. Run as root:
-#   sudo /srv/maraton-parts/deploy/scripts/deploy.sh
+#   sudo bash /srv/maraton-parts/deploy/scripts/deploy.sh
 #
 # Builds run as the unprivileged `maratonparts` user; root is only needed to
 # restart the service at the end.
@@ -34,7 +34,7 @@ as_app "cd $APP_DIR/backend && npm ci --no-audit --no-fund && npm run build"
 echo "==> Backing up the database before migrating"
 if [[ ${SKIP_BACKUP:-} == 1 ]]; then
   echo "    skipped (SKIP_BACKUP=1)"
-elif ! "$APP_DIR/deploy/scripts/backup.sh" --label pre-deploy --db-only; then
+elif ! bash "$APP_DIR/deploy/scripts/backup.sh" --label pre-deploy --db-only; then
   echo "The backup failed, so nothing was migrated. Fix it, or SKIP_BACKUP=1 to deploy anyway." >&2
   exit 1
 fi

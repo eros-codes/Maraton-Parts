@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Put a backup back.
 #
-#   sudo restore.sh --check daily-db-20261011-033000.sql.gz
+#   sudo bash restore.sh --check daily-db-20261011-033000.sql.gz
 #       Proves a backup loads, in a scratch database. Touches nothing live.
 #
-#   sudo restore.sh daily-db-20261011-033000.sql.gz [--uploads daily-uploads-....tar.gz]
+#   sudo bash restore.sh daily-db-20261011-033000.sql.gz [--uploads daily-uploads-....tar.gz]
 #       Replaces the live database (and the images) with the backup. Asks
 #       for the database name first; --yes skips that, for scripts.
 #
@@ -77,9 +77,9 @@ fi
 # database is empty and there is nothing to keep (backup.sh says so).
 echo "==> Backing up the current state first"
 if [[ -n $uploads ]]; then
-  "$SCRIPT_DIR/backup.sh" --label pre-restore
+  bash "$SCRIPT_DIR/backup.sh" --label pre-restore
 else
-  "$SCRIPT_DIR/backup.sh" --label pre-restore --db-only
+  bash "$SCRIPT_DIR/backup.sh" --label pre-restore --db-only
 fi
 
 take_db_lock

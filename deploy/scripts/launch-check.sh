@@ -3,7 +3,7 @@
 # Is this server ready for real customers? Run it before switching a demo
 # into a shop, and again after any change to the env files:
 #
-#   sudo /srv/maraton-parts/deploy/scripts/launch-check.sh
+#   sudo bash /srv/maraton-parts/deploy/scripts/launch-check.sh
 #
 # [FAIL] lines must be fixed before taking real orders - real money, real
 # customers' data. [warn] lines are strongly recommended. Changes nothing.

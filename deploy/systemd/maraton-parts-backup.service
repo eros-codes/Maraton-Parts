@@ -4,7 +4,9 @@ After=mysql.service
 
 [Service]
 Type=oneshot
-ExecStart=/srv/maraton-parts/deploy/scripts/backup.sh
+# Through bash, so the script runs whether or not git kept its +x bit
+# (it does not, committed from Windows).
+ExecStart=/bin/bash /srv/maraton-parts/deploy/scripts/backup.sh
 # In the background: the shop keeps the disk and CPU it needs.
 Nice=10
 IOSchedulingClass=idle

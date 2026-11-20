@@ -93,13 +93,17 @@ jobs:
         run: |
           curl -fsSL https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz | tar -xJ
           ./shellcheck-v0.11.0/shellcheck -x -P deploy/scripts deploy/scripts/*.sh deploy/scripts/lib/*.sh
-      - name: Executable bits
-        # A script stored without +x fails on the server with "Permission
-        # denied" - deploy.sh itself was once committed that way.
+      - name: Scripts run through bash
+        # Committed from Windows, a script loses its +x bit; so nothing may
+        # run one as `./script.sh` or `/path/script.sh` - only `bash script`.
+        # A direct call would fail on the server with "Permission denied".
         run: |
-          for f in deploy/scripts/*.sh; do
-            [ "$(git ls-files -s "$f" | cut -c1-6)" = 100755 ] || { echo "$f is not executable in git"; exit 1; }
-          done
+          if grep -nE '^ExecStart=/srv/' deploy/systemd/*.service; then
+            echo "Run the script with ExecStart=/bin/bash <path>" >&2; exit 1
+          fi
+          if grep -nE '^\s*((el)?if !\s*)?"\$[A-Za-z_]+[^"]*\.sh"' deploy/scripts/*.sh; then
+            echo "Call other scripts as: bash \"\$SCRIPT_DIR/x.sh\"" >&2; exit 1
+          fi
 
   browser:
     name: Browser tests

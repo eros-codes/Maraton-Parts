@@ -4,4 +4,5 @@ After=mysql.service
 
 [Service]
 Type=oneshot
-ExecStart=/srv/maraton-parts/deploy/scripts/reset-demo.sh
+# Through bash, so the script runs whether or not git kept its +x bit.
+ExecStart=/bin/bash /srv/maraton-parts/deploy/scripts/reset-demo.sh
