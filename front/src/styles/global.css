@@ -1,0 +1,605 @@
+/* ===========================================================
+   Maraton Parts storefront — design tokens
+   Black and white carry the shop; gold is the accent that sets it
+   apart - prices on sale, the active state, small marks of emphasis.
+   Palette: pure black #000000, charcoal #2F2F2F, gold #A07F3A,
+   wheat #C8AA6F, soft sand #E3D5BB.
+   =========================================================== */
+:root {
+  /* Primary: black, charcoal and the greys between them and white. */
+  --brand-900: #000000;
+  --brand-800: #0d0d0d;
+  --brand-700: #141414;
+  --brand-600: #2f2f2f;
+  --brand-500: #4a4a4a;
+  --brand-100: #ecebe8;
+  --brand-50: #f5f4f1;
+
+  /* Secondary: the golds. */
+  --gold-700: #84682c;
+  --gold-600: #a07f3a;
+  --wheat-500: #c8aa6f;
+  --sand-300: #e3d5bb;
+  --sand-100: #f2ebdd;
+  --sand-50: #f9f5ee;
+
+  --accent-600: var(--gold-600);
+  --accent-500: var(--wheat-500);
+  --accent-50: var(--sand-50);
+
+  --success-600: #0f9d58;
+  --success-50: #e7f7ef;
+  --warning-600: #c77700;
+  --warning-50: #fdf3e2;
+  --danger-600: #d93025;
+  --danger-50: #fdecea;
+
+  --ink-900: #0a0a0a;
+  --ink-700: #2f2f2f;
+  --ink-500: #5e5d5a;
+  --ink-400: #8a8884;
+  --ink-300: #b8b5ae;
+  --line: #e9e6df;
+  --line-strong: #d8d3c8;
+  --surface: #ffffff;
+  --surface-2: #faf9f6;
+  --page: #f6f5f2;
+
+  --radius-sm: 10px;
+  --radius: 16px;
+  --radius-lg: 22px;
+  --radius-pill: 999px;
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.06);
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.12);
+
+  --container: 1240px;
+  --header-height: 132px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Morabba', 'Vazirmatn', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* Morabba's spaces are narrow; see fonts.css. */
+  word-spacing: 0.12em;
+  background-color: var(--page);
+  background-image: radial-gradient(
+    rgba(0, 0, 0, 0.04) 1px,
+    transparent 1px
+  );
+  background-size: 22px 22px;
+  color: var(--ink-900);
+  font-size: 15px;
+  line-height: 1.8;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+figure {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  word-spacing: inherit;
+  color: inherit;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--gold-600);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ---------- layout ---------- */
+.container {
+  width: min(100% - 32px, var(--container));
+  margin-inline: auto;
+}
+
+.page {
+  min-height: 60vh;
+  padding-block: 28px 64px;
+}
+
+.section {
+  margin-top: 36px;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+
+.section-title::before {
+  content: '';
+  width: 5px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(180deg, var(--wheat-500), var(--gold-600));
+}
+
+.section-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gold-700);
+  transition: gap 0.15s ease;
+}
+
+.section-link:hover {
+  gap: 10px;
+}
+
+.grid {
+  display: grid;
+  gap: 16px;
+}
+
+/* Column counts used to be written as inline styles, which a media query
+   cannot override - the account dashboard stayed three columns on a phone
+   and dragged the whole page sideways. This reflows on its own instead.
+   minmax(0, ...) because a grid item's default min-width is its content. */
+.auto-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
+}
+
+.auto-grid > * {
+  min-width: 0;
+}
+
+.muted {
+  color: var(--ink-500);
+}
+
+.small {
+  font-size: 13px;
+}
+
+.tiny {
+  font-size: 12px;
+}
+
+.strong {
+  font-weight: 700;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.spread {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-xs);
+}
+
+.card-pad {
+  padding: 20px;
+}
+
+/* ---------- buttons ---------- */
+.btn {
+  --btn-bg: var(--brand-700);
+  --btn-fg: #fff;
+  --btn-border: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 20px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--btn-border);
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease,
+    opacity 0.18s ease;
+}
+
+.btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  --btn-bg: linear-gradient(135deg, var(--brand-700), var(--brand-600));
+}
+
+.btn-accent {
+  --btn-bg: linear-gradient(135deg, var(--accent-600), var(--accent-500));
+}
+
+.btn-ghost {
+  --btn-bg: transparent;
+  --btn-fg: var(--ink-700);
+  --btn-border: var(--line-strong);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  --btn-bg: var(--surface-2);
+}
+
+.btn-soft {
+  --btn-bg: var(--brand-50);
+  --btn-fg: var(--brand-700);
+}
+
+.btn-danger {
+  --btn-bg: transparent;
+  --btn-fg: var(--danger-600);
+  --btn-border: #f3c8c4;
+}
+
+.btn-block {
+  width: 100%;
+}
+
+.btn-sm {
+  padding: 7px 14px;
+  font-size: 13px;
+}
+
+.btn-lg {
+  padding: 14px 28px;
+  font-size: 15px;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-700);
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.icon-btn:hover:not(:disabled) {
+  background: var(--brand-50);
+  color: var(--brand-700);
+  border-color: var(--brand-100);
+}
+
+.icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---------- form controls ---------- */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-700);
+}
+
+.input,
+.select,
+.textarea {
+  width: 100%;
+  padding: 11px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--ink-300);
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--gold-600);
+  box-shadow: 0 0 0 3px var(--sand-100);
+}
+
+.input[aria-invalid='true'] {
+  border-color: var(--danger-600);
+}
+
+.textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+/* iOS Safari zooms the whole page into any field whose text is under 16px
+   and does not zoom back out - every tap into a 15px input left the
+   customer pinching the shop back to size. */
+@media (max-width: 760px), (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+.field-error {
+  font-size: 12px;
+  color: var(--danger-600);
+}
+
+.field-hint {
+  font-size: 12px;
+  color: var(--ink-400);
+}
+
+/* ---------- badges & chips ---------- */
+.badge {
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--brand-50);
+  color: var(--brand-700);
+}
+
+.badge-accent {
+  background: var(--accent-50);
+  color: var(--accent-600);
+}
+
+.badge-success {
+  background: var(--success-50);
+  color: var(--success-600);
+}
+
+.badge-warning {
+  background: var(--warning-50);
+  color: var(--warning-600);
+}
+
+.badge-danger {
+  background: var(--danger-50);
+  color: var(--danger-600);
+}
+
+.badge-muted {
+  background: var(--surface-2);
+  color: var(--ink-500);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.chip:hover {
+  border-color: var(--brand-500);
+  color: var(--brand-700);
+}
+
+.chip[data-active='true'] {
+  background: var(--brand-700);
+  border-color: var(--brand-700);
+  color: #fff;
+}
+
+/* ---------- price ---------- */
+.price {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.price-now {
+  font-size: 17px;
+  color: var(--ink-900);
+  font-variant-numeric: tabular-nums;
+}
+
+.price-was {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-400);
+  text-decoration: line-through;
+}
+
+.price-off {
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-600);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* ---------- utilities ---------- */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: #ecebe8;
+  border-radius: var(--radius-sm);
+}
+
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.65),
+    transparent
+  );
+  animation: shimmer 1.3s infinite;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.35s ease both;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.scroll-x {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scrollbar-width: thin;
+}
+
+.scroll-x::-webkit-scrollbar {
+  height: 6px;
+}
+
+.scroll-x::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: var(--radius-pill);
+}
+
+.divider {
+  height: 1px;
+  background: var(--line);
+  margin-block: 14px;
+}
+
+/* Prices, invoice numbers: a line break inside one is a misreading. */
+.nowrap {
+  white-space: nowrap;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

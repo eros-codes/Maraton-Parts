@@ -1,0 +1,1607 @@
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  HttpStatus,
+  NotFoundException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { createHash } from 'crypto';
+import {
+  DataSource,
+  EntityManager,
+  FindOptionsSelect,
+  FindOptionsWhere,
+  In,
+  IsNull,
+  Repository,
+  Like,
+} from 'typeorm';
+import { CreateOrderDto } from './dto/create-order.dto';
+import { QuoteOrderDto } from './dto/quote-order.dto';
+import { UpdateOrderDto } from './dto/update-order.dto';
+import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
+import { FilterOrderDto } from './dto/filter-order.dto';
+import { Order } from './entities/order.entity';
+import { OrderItem } from './entities/order-item.entity';
+import { User } from '../users/entities/user.entity';
+import { Address } from '../address/entities/address.entity';
+import { Product } from '../products/entities/product.entity';
+import { BasketItem } from '../users/entities/basket-item.entity';
+import {
+  DiscountCodesService,
+  DiscountLine,
+} from '../discount-codes/discount-codes.service';
+import { DiscountCode } from '../discount-codes/entities/discount-code.entity';
+import { WalletsService } from '../wallets/wallets.service';
+import { ZarinpalService } from '../payments/zarinpal.service';
+import { ShippingOption, ShippingService } from '../shipping/shipping.service';
+import { ShippingMethod } from '../shipping/entities/shipping-method.entity';
+import { InvoiceService } from './invoice.service';
+import { OrderNotificationsService } from '../notifications/order-notifications.service';
+import NotificationEventEnum from '../notifications/enums/notification-event.enum';
+import { AuditActor, AuditService } from '../audit/audit.service';
+import { ConfigService } from '@nestjs/config';
+import OrderStatusEnum from './enums/order-status.enum';
+import PaymentMethodEnum from './enums/payment-method.enum';
+import { PaginatedResult } from '../common/interfaces/paginated-result.interface';
+import { restoreStock, toStockLines } from '../products/utils/product-stock';
+import {
+  CatalogCacheScope,
+  CatalogCacheService,
+} from '../common/cache/catalog-cache.service';
+import { isDuplicateEntryError } from '../common/database/mysql-errors';
+import {
+  DEFAULT_PAYMENT_WINDOW_MINUTES,
+  MAX_MONEY_AMOUNT,
+  MAX_OPEN_PAYMENT_SESSIONS_PER_USER,
+} from '../common/constants/money';
+import { AppError } from '../common/errors/app-error';
+import { toAsciiDigits } from '../common/validation/normalize';
+import { escapeLikePattern } from '../products/utils/product-search';
+import { ErrorCodes } from '../common/errors/error-codes';
+
+const ALLOWED_STATUS_TRANSITIONS: Record<OrderStatusEnum, OrderStatusEnum[]> = {
+  [OrderStatusEnum.Pending]: [OrderStatusEnum.Paid, OrderStatusEnum.Cancelled],
+  [OrderStatusEnum.AwaitingPayment]: [
+    OrderStatusEnum.Paid,
+    OrderStatusEnum.Cancelled,
+  ],
+  [OrderStatusEnum.Paid]: [
+    OrderStatusEnum.Processing,
+    OrderStatusEnum.Cancelled,
+  ],
+  [OrderStatusEnum.Processing]: [
+    OrderStatusEnum.Sent,
+    OrderStatusEnum.Cancelled,
+  ],
+  [OrderStatusEnum.Sent]: [OrderStatusEnum.Delivered],
+  [OrderStatusEnum.Delivered]: [],
+  [OrderStatusEnum.Cancelled]: [],
+};
+
+const CUSTOMER_CANCELLABLE = [OrderStatusEnum.Pending];
+
+const CANCELLABLE_WITH_STOCK_RESTORE = [
+  OrderStatusEnum.Pending,
+  OrderStatusEnum.AwaitingPayment,
+  OrderStatusEnum.Paid,
+  OrderStatusEnum.Processing,
+];
+
+const REFUNDABLE_ON_CANCEL = [OrderStatusEnum.Paid, OrderStatusEnum.Processing];
+
+// Cash on delivery is paid at the door, not before - and the table above
+// was written for orders paid up front. Two steps are added for it:
+//  - pending -> processing: the shop confirms the order and starts on it.
+//    The only way forward used to be "paid", so every COD order was marked
+//    paid before it left the building - and cancelling one after that
+//    refunded the whole amount to the customer's wallet, money the shop
+//    had never received;
+//  - sent -> cancelled, while still unpaid: the customer refused the
+//    parcel and it comes back. Such an order used to sit in "sent" for
+//    good, its stock never returned.
+function allowedNextStatuses(order: Order): OrderStatusEnum[] {
+  const base = ALLOWED_STATUS_TRANSITIONS[order.status] ?? [];
+  if (order.payment_method !== PaymentMethodEnum.CashOnDelivery) return base;
+  if (order.status === OrderStatusEnum.Pending) {
+    return [...base, OrderStatusEnum.Processing];
+  }
+  if (order.status === OrderStatusEnum.Sent && !order.payed_time) {
+    return [...base, OrderStatusEnum.Cancelled];
+  }
+  return base;
+}
+
+// Whether the shop has the order's money. A COD order has it once the
+// courier has collected it (payed_time is set on delivery, or when the
+// admin records an early payment).
+function moneyReceived(order: Order): boolean {
+  return (
+    order.payment_method !== PaymentMethodEnum.CashOnDelivery ||
+    !!order.payed_time
+  );
+}
+
+const DEFAULT_COD_MAX_AMOUNT = 20_000_000;
+
+// An order in one of these has been paid for, so cancelling it has to
+// take its units back out of the sales counter.
+const SOLD_STATUSES: OrderStatusEnum[] = [
+  OrderStatusEnum.Paid,
+  OrderStatusEnum.Processing,
+  OrderStatusEnum.Sent,
+  OrderStatusEnum.Delivered,
+];
+
+const UNPAID_STATUSES = [
+  OrderStatusEnum.Pending,
+  OrderStatusEnum.AwaitingPayment,
+];
+
+const ORDER_SELECT: FindOptionsSelect<Order> = {
+  id: true,
+  status: true,
+  payed_time: true,
+  delivered_at: true,
+  payment_method: true,
+  payment_reference: true,
+  payment_expires_at: true,
+  shippingAddressSnapshot: true,
+  items_total: true,
+  discount_amount: true,
+  shipping_cost: true,
+  tax_amount: true,
+  cod_fee: true,
+  invoice_number: true,
+  total_price: true,
+  total_quantity: true,
+  shipping_method_title: true,
+  shipping_eta_days_min: true,
+  shipping_eta_days_max: true,
+  refunded_amount: true,
+  tracking_code: true,
+  idempotency_key: true,
+  createdAt: true,
+  updatedAt: true,
+  user: { id: true, display_name: true, mobile: true },
+  discount: { id: true, code: true, off_percent: true },
+  items: {
+    id: true,
+    price: true,
+    quantity: true,
+    variant_title: true,
+    product: { id: true, title: true, slug: true },
+  },
+};
+
+const ORDER_RELATIONS = {
+  user: true,
+  discount: true,
+  items: { product: true },
+} as const;
+
+export interface CreateOrderResult {
+  order: Order;
+  paymentUrl?: string;
+}
+
+export type PaymentOutcome = 'paid' | 'already_paid' | 'refunded';
+
+export interface OrderQuote {
+  items_total: number;
+  discount_amount: number;
+  shipping_cost: number;
+  tax_amount: number;
+  cod_fee: number;
+  total_price: number;
+  total_quantity: number;
+  shippingMethodId: number | null;
+  // The code as sent, whether it took, and if not, why - in the same
+  // code/message shape as any other error, for the page to translate.
+  discount: {
+    code: string;
+    applied: boolean;
+    error?: {
+      code: string;
+      message: string;
+      details?: Record<string, unknown>;
+    };
+  } | null;
+}
+
+@Injectable()
+export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
+  constructor(
+    @InjectRepository(Order)
+    private readonly ordersRepository: Repository<Order>,
+    @InjectRepository(OrderItem)
+    private readonly orderItemsRepository: Repository<OrderItem>,
+    @InjectRepository(User)
+    private readonly usersRepository: Repository<User>,
+    @InjectRepository(Address)
+    private readonly addressesRepository: Repository<Address>,
+    @InjectRepository(Product)
+    private readonly productsRepository: Repository<Product>,
+    private readonly discountCodesService: DiscountCodesService,
+    private readonly walletsService: WalletsService,
+    private readonly zarinpalService: ZarinpalService,
+    private readonly shippingService: ShippingService,
+    private readonly invoiceService: InvoiceService,
+    private readonly notifications: OrderNotificationsService,
+    private readonly auditService: AuditService,
+    private readonly configService: ConfigService,
+    private readonly dataSource: DataSource,
+    private readonly catalogCache: CatalogCacheService,
+  ) {}
+
+  private get paymentWindowMs(): number {
+    const minutes =
+      Number(this.configService.get<string>('PAYMENT_WINDOW_MINUTES')) ||
+      DEFAULT_PAYMENT_WINDOW_MINUTES;
+    return minutes * 60 * 1000;
+  }
+
+  private calculateOrderTotals(
+    items: Array<{ price: number; quantity: number }>,
+  ) {
+    const total_price = items.reduce(
+      (sum, item) => sum + Number(item.price) * item.quantity,
+      0,
+    );
+    const total_quantity = items.reduce((sum, item) => sum + item.quantity, 0);
+
+    return { total_price, total_quantity };
+  }
+
+  private async priceOrder(params: {
+    lines: Array<{ price: number; quantity: number }>;
+    discountAmount?: number;
+    province: string;
+    weightGrams: number;
+    shippingMethodId?: number;
+    cashOnDelivery?: boolean;
+  }): Promise<{
+    items_total: number;
+    discount_amount: number;
+    shipping_cost: number;
+    tax_amount: number;
+    cod_fee: number;
+    total_price: number;
+    total_quantity: number;
+    shipping: ShippingOption | null;
+  }> {
+    const { total_price: items_total, total_quantity } =
+      this.calculateOrderTotals(params.lines);
+    const discount_amount = Math.min(params.discountAmount ?? 0, items_total);
+    const discountedGoods = items_total - discount_amount;
+
+    const shipping = await this.shippingService.priceForOrder({
+      province: params.province,
+      weightGrams: params.weightGrams,
+      goodsTotal: discountedGoods,
+      methodId: params.shippingMethodId,
+    });
+    const shipping_cost = shipping?.cost ?? 0;
+
+    let cod_fee = 0;
+    if (params.cashOnDelivery) {
+      if (!shipping) {
+        throw new BadRequestException(
+          'Cash on delivery needs a shipping method that supports it',
+        );
+      }
+      if (!shipping.supportsCashOnDelivery) {
+        throw AppError.badRequest(
+          ErrorCodes.COD_NOT_SUPPORTED,
+          `${shipping.title} does not collect payment at the door - choose another method or pay online`,
+          { methodId: shipping.methodId },
+        );
+      }
+      cod_fee = shipping.cashOnDeliveryFee ?? 0;
+    }
+
+    const taxRate = Number(
+      this.configService.get<string>('TAX_RATE_PERCENT') ?? 0,
+    );
+    const tax_amount =
+      taxRate > 0 ? Math.round((discountedGoods * taxRate) / 100) : 0;
+
+    const total_price = discountedGoods + shipping_cost + tax_amount + cod_fee;
+    if (total_price > MAX_MONEY_AMOUNT) {
+      throw AppError.badRequest(
+        ErrorCodes.AMOUNT_TOO_LARGE,
+        'This order total is larger than the allowed maximum',
+      );
+    }
+    if (params.cashOnDelivery) {
+      const limit = Number(
+        this.configService.get<string>('COD_MAX_AMOUNT') ??
+          DEFAULT_COD_MAX_AMOUNT,
+      );
+      if (total_price > limit) {
+        throw AppError.badRequest(
+          ErrorCodes.COD_LIMIT_EXCEEDED,
+          `Cash on delivery is only available up to ${limit.toLocaleString('en-US')} Toman - please pay online for this order`,
+          { limit, total: total_price },
+        );
+      }
+    }
+
+    return {
+      items_total,
+      discount_amount,
+      shipping_cost,
+      tax_amount,
+      cod_fee,
+      total_price,
+      total_quantity,
+      shipping,
+    };
+  }
+
+  private insufficientStock(
+    product: Product,
+    available: number,
+    requested: number,
+  ): AppError {
+    return AppError.badRequest(
+      ErrorCodes.INSUFFICIENT_STOCK,
+      `${product.title} does not have enough stock`,
+      {
+        productId: product.id,
+        // The title travels with the error so a client can name the
+        // offending line. In a multi-line basket "out of stock" on its own
+        // leaves the customer guessing which item to remove.
+        productTitle: product.title,
+        available,
+        requested,
+      },
+    );
+  }
+
+  // What placing this basket would cost, priced by the same code create()
+  // uses - without creating, reserving or locking anything. Checkout shows
+  // it before the customer commits: a wallet payment is taken the moment
+  // the order is placed, so the amount on the button has to be the amount
+  // taken. The page used to estimate it, with the tax rate guessed at 10%
+  // and a discount code's effect unknown until after the money had moved.
+  //
+  // A discount code that does not apply does not fail the quote: the price
+  // comes back without it and the reason travels alongside, so the page can
+  // say why. Everything else that would stop the order (stock, a shipping
+  // method that does not serve the address, the cash-on-delivery ceiling)
+  // fails it the same way create() would.
+  async quote(userId: number, dto: QuoteOrderDto): Promise<OrderQuote> {
+    const manager = this.dataSource.manager;
+
+    const address = await manager.getRepository(Address).findOne({
+      where: { id: dto.addressId },
+      relations: { user: true },
+    });
+    if (!address || address.user?.id !== userId) {
+      throw new NotFoundException(`Address with id ${dto.addressId} not found`);
+    }
+
+    const productIds = dto.items.map((item) => item.productId);
+    const products = await manager
+      .getRepository(Product)
+      .find({ where: { id: In(productIds) } });
+    if (products.length !== new Set(productIds).size) {
+      throw new BadRequestException('One or more product IDs are invalid');
+    }
+    this.assertAllForSale(products);
+
+    const resolved = this.productsFor(dto.items, products);
+    const wanted = new Map<number, number>();
+    const lines = dto.items.map((item, index) => {
+      const product = resolved[index];
+      const total = (wanted.get(product.id) ?? 0) + item.quantity;
+      wanted.set(product.id, total);
+      if (Number(product.stock) < total) {
+        throw this.insufficientStock(product, Number(product.stock), total);
+      }
+      return {
+        price: product.effectivePrice(),
+        quantity: item.quantity,
+      };
+    });
+
+    let discountAmount = 0;
+    let discount: OrderQuote['discount'] = null;
+    if (dto.discountCode) {
+      try {
+        const result = await this.discountCodesService.quoteForOrder({
+          code: dto.discountCode,
+          userId,
+          lines: await this.toDiscountLines(manager, dto.items, lines),
+        });
+        discountAmount = result.amount;
+        discount = { code: dto.discountCode, applied: true };
+      } catch (error) {
+        if (!(error instanceof AppError)) throw error;
+        discount = {
+          code: dto.discountCode,
+          applied: false,
+          error: {
+            code: error.code,
+            message: error.message,
+            ...(error.details ? { details: error.details } : {}),
+          },
+        };
+      }
+    }
+
+    const weightGrams = this.weightOf(resolved, dto.items);
+    const totals = await this.priceOrder({
+      lines,
+      discountAmount,
+      province: address.province,
+      weightGrams,
+      shippingMethodId: dto.shippingMethodId,
+      cashOnDelivery: !!dto.payOnDelivery,
+    });
+
+    return {
+      items_total: totals.items_total,
+      discount_amount: totals.discount_amount,
+      shipping_cost: totals.shipping_cost,
+      tax_amount: totals.tax_amount,
+      cod_fee: totals.cod_fee,
+      total_price: totals.total_price,
+      total_quantity: totals.total_quantity,
+      shippingMethodId: totals.shipping?.methodId ?? null,
+      discount,
+    };
+  }
+
+  private applyDiscount(total: number, discount?: DiscountCode | null): number {
+    if (!discount) return total;
+    return Math.round(total - (total * discount.off_percent) / 100);
+  }
+
+  // Everything that changes what gets bought or how it is paid. A key
+  // reused with a different payload is refused (409) - it used to leave
+  // out the shipping method and cash on delivery, so a retry that switched
+  // the courier was handed back the first order as if it were the same
+  // request.
+  private fingerprintOf(dto: CreateOrderDto): string {
+    const canonical = JSON.stringify({
+      addressId: dto.addressId,
+      discountCode: dto.discountCode ?? null,
+      payWithWallet: !!dto.payWithWallet,
+      payWithZarinpal: !!dto.payWithZarinpal,
+      payOnDelivery: !!dto.payOnDelivery,
+      shippingMethodId: dto.shippingMethodId ?? null,
+      items: [...dto.items]
+        .map((item) => [item.productId, item.quantity])
+        .sort((a, b) => a[0] - b[0] || a[1] - b[1]),
+    });
+    return createHash('sha256').update(canonical).digest('hex');
+  }
+
+  async create(
+    userId: number,
+    createOrderDto: CreateOrderDto,
+    idempotencyKey: string,
+  ): Promise<CreateOrderResult> {
+    const {
+      addressId,
+      items,
+      discountCode,
+      payWithWallet,
+      payWithZarinpal,
+      payOnDelivery,
+      shippingMethodId,
+    } = createOrderDto;
+
+    const chosen = [payWithWallet, payWithZarinpal, payOnDelivery].filter(
+      Boolean,
+    );
+    if (chosen.length !== 1) {
+      throw AppError.badRequest(
+        ErrorCodes.PAYMENT_METHOD_REQUIRED,
+        'Choose exactly one payment method: payWithWallet, payWithZarinpal or payOnDelivery',
+      );
+    }
+    const paymentMethod = payWithWallet
+      ? PaymentMethodEnum.Wallet
+      : payWithZarinpal
+        ? PaymentMethodEnum.Zarinpal
+        : PaymentMethodEnum.CashOnDelivery;
+    const fingerprint = this.fingerprintOf(createOrderDto);
+
+    // A retried request returns the order it already created. Without this,
+    // a dropped connection costs the customer a second order.
+    const replay = await this.findByIdempotencyKey(userId, idempotencyKey);
+    if (replay) {
+      return this.replayExistingOrder(replay, fingerprint);
+    }
+
+    if (paymentMethod === PaymentMethodEnum.Zarinpal) {
+      await this.assertOpenSessionLimit(userId);
+    }
+
+    let createdOrderId: number;
+    try {
+      createdOrderId = await this.dataSource.transaction(async (manager) => {
+        const usersRepo = manager.getRepository(User);
+        const addressesRepo = manager.getRepository(Address);
+        const productsRepo = manager.getRepository(Product);
+        const orderItemsRepo = manager.getRepository(OrderItem);
+        const ordersRepo = manager.getRepository(Order);
+
+        const user = await usersRepo.findOneBy({ id: userId });
+        if (!user) {
+          throw new NotFoundException(`User with id ${userId} not found`);
+        }
+
+        const address = await addressesRepo.findOne({
+          where: { id: addressId },
+          relations: { user: true },
+        });
+        if (!address) {
+          throw new NotFoundException(`Address with id ${addressId} not found`);
+        }
+        if (address.user.id !== userId) {
+          throw new BadRequestException('This address does not belong to you');
+        }
+
+        const productIds = items.map((item) => item.productId);
+        // SELECT ... FOR UPDATE: a second checkout touching these products waits
+        // for this transaction, which closes the race where two orders both read
+        // the last unit and both succeed. Lock order everywhere is
+        // categories -> product -> user, so two checkouts cannot deadlock
+        // against each other.
+        const products = await productsRepo.find({
+          where: { id: In(productIds) },
+          order: { id: 'ASC' },
+          lock: { mode: 'pessimistic_write' },
+        });
+
+        if (products.length !== new Set(productIds).size) {
+          throw new BadRequestException('One or more product IDs are invalid');
+        }
+        this.assertAllForSale(products);
+
+        // The same product twice in one request is one object here, so the
+        // second line sees what the first one took.
+        const resolved = this.productsFor(items, products);
+
+        const orderItems = items.map((item, index) => {
+          const product = resolved[index];
+          if (Number(product.stock) < item.quantity) {
+            throw this.insufficientStock(
+              product,
+              Number(product.stock),
+              item.quantity,
+            );
+          }
+
+          product.stock = Number(product.stock) - item.quantity;
+
+          return orderItemsRepo.create({
+            product,
+            price: product.effectivePrice(),
+            quantity: item.quantity,
+          });
+        });
+
+        await this.saveStock(manager, products);
+
+        let discount: DiscountCode | undefined;
+        let discountAmount = 0;
+        if (discountCode) {
+          const quote = await this.discountCodesService.quoteForOrder({
+            code: discountCode,
+            userId,
+            lines: await this.toDiscountLines(manager, items, orderItems),
+            manager,
+          });
+          discount = quote.discount;
+          discountAmount = quote.amount;
+        }
+
+        const weightGrams = this.weightOf(resolved, items);
+        const totals = await this.priceOrder({
+          lines: orderItems.map((item) => ({
+            price: item.price,
+            quantity: item.quantity,
+          })),
+          discountAmount,
+          province: address.province,
+          weightGrams,
+          shippingMethodId,
+          cashOnDelivery: paymentMethod === PaymentMethodEnum.CashOnDelivery,
+        });
+        const finalPrice = totals.total_price;
+
+        const isWallet = paymentMethod === PaymentMethodEnum.Wallet;
+        const isCashOnDelivery =
+          paymentMethod === PaymentMethodEnum.CashOnDelivery;
+        const invoiceNumber =
+          isWallet || isCashOnDelivery
+            ? await this.invoiceService.nextNumber(manager)
+            : null;
+        const order = ordersRepo.create({
+          user,
+          address,
+          shippingAddressSnapshot: {
+            province: address.province,
+            city: address.city,
+            address: address.address,
+            postal_code: address.postal_code,
+            receiver_mobile: address.receiver_mobile,
+            description: address.description,
+          },
+          items: orderItems,
+          items_total: totals.items_total,
+          discount_amount: totals.discount_amount,
+          shipping_cost: totals.shipping_cost,
+          tax_amount: totals.tax_amount,
+          cod_fee: totals.cod_fee,
+          ...(invoiceNumber ? { invoice_number: invoiceNumber } : {}),
+          total_price: finalPrice,
+          total_quantity: totals.total_quantity,
+          ...(totals.shipping
+            ? {
+                shipping_method: {
+                  id: totals.shipping.methodId,
+                } as ShippingMethod,
+                shipping_method_title: totals.shipping.title,
+                shipping_eta_days_min: totals.shipping.estimatedDaysMin,
+                shipping_eta_days_max: totals.shipping.estimatedDaysMax,
+              }
+            : {}),
+          payment_method: paymentMethod,
+          idempotency_key: idempotencyKey,
+          idempotency_fingerprint: fingerprint,
+          ...(discount ? { discount } : {}),
+          ...(isWallet
+            ? { status: OrderStatusEnum.Paid, payed_time: new Date() }
+            : isCashOnDelivery
+              ? { status: OrderStatusEnum.Pending }
+              : {
+                  status: OrderStatusEnum.AwaitingPayment,
+                  payment_expires_at: new Date(
+                    Date.now() + this.paymentWindowMs,
+                  ),
+                }),
+        });
+
+        const savedOrder = await ordersRepo.save(order);
+        if (isWallet) {
+          await this.countSales(manager, savedOrder.id, 1);
+        }
+
+        if (discount) {
+          await this.discountCodesService.consumeOne(discount, manager);
+          await ordersRepo.update(
+            { id: savedOrder.id },
+            { discount_reserved: true },
+          );
+        }
+
+        if (isWallet) {
+          const { transactionId } = await this.walletsService.withdrawByUserId(
+            userId,
+            finalPrice,
+            manager,
+            `Order #${savedOrder.id}`,
+          );
+          await ordersRepo.update(
+            { id: savedOrder.id },
+            { payment_reference: `wallet-tx:${transactionId}` },
+          );
+        }
+
+        // Whatever was just ordered leaves the basket in the same
+        // transaction that reserved its stock. The client clearing its own
+        // local copy is not enough: a signed-in customer's basket lives on
+        // the server, so without this the items reappear on the next reload
+        // and can be bought twice.
+        const basketRepo = manager.getRepository(BasketItem);
+        for (const product of new Set(resolved)) {
+          await basketRepo.delete({
+            user: { id: userId },
+            product: { id: product.id },
+          });
+        }
+
+        return savedOrder.id;
+      });
+    } catch (error) {
+      if (isDuplicateEntryError(error)) {
+        const existing = await this.findByIdempotencyKey(
+          userId,
+          idempotencyKey,
+        );
+        if (existing) {
+          return this.replayExistingOrder(existing, fingerprint);
+        }
+        throw new ConflictException(
+          'A checkout with this Idempotency-Key is already being processed',
+        );
+      }
+      throw error;
+    }
+
+    await this.catalogCache.invalidate(CatalogCacheScope.Products);
+
+    if (paymentMethod !== PaymentMethodEnum.Zarinpal) {
+      const order = await this.findOne(createdOrderId);
+      await this.notifications.notify(
+        order,
+        paymentMethod === PaymentMethodEnum.CashOnDelivery
+          ? NotificationEventEnum.OrderPlaced
+          : NotificationEventEnum.OrderPaid,
+      );
+      return { order };
+    }
+    return this.openPaymentSession(createdOrderId);
+  }
+
+  private async openPaymentSession(
+    orderId: number,
+  ): Promise<CreateOrderResult> {
+    const order = await this.findOne(orderId);
+    const backendUrl = this.configService.get<string>('BACKEND_URL');
+    const callbackUrl = `${backendUrl}/payments/zarinpal/callback/order`;
+
+    try {
+      const { authority, paymentUrl } =
+        await this.zarinpalService.requestPayment(
+          order.total_price,
+          `Order #${order.id}`,
+          callbackUrl,
+          order.user.mobile,
+        );
+      await this.ordersRepository.update(
+        { id: order.id },
+        { zarinpalAuthority: authority },
+      );
+      return { order: await this.findOne(orderId), paymentUrl };
+    } catch (error) {
+      this.logger.error(
+        `Could not open a payment session for order ${orderId}: ${(error as Error).message}`,
+      );
+      await this.cancelUnpaidOrder(
+        orderId,
+        'the payment session could not be opened',
+      );
+      throw new AppError(
+        ErrorCodes.PAYMENT_GATEWAY_UNAVAILABLE,
+        'Could not start the payment. Nothing was charged, the order was cancelled - please try again.',
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+  }
+
+  private async assertOpenSessionLimit(userId: number): Promise<void> {
+    const open = await this.ordersRepository.count({
+      where: {
+        user: { id: userId },
+        status: OrderStatusEnum.AwaitingPayment,
+        deletedAt: IsNull(),
+      },
+    });
+    if (open >= MAX_OPEN_PAYMENT_SESSIONS_PER_USER) {
+      throw new ConflictException(
+        `You already have ${open} unpaid orders waiting for payment - finish or cancel one before starting another`,
+      );
+    }
+  }
+
+  private async findByIdempotencyKey(
+    userId: number,
+    idempotencyKey: string,
+  ): Promise<{
+    id: number;
+    fingerprint: string | null;
+    status: OrderStatusEnum;
+    authority: string | null;
+    deleted: boolean;
+  } | null> {
+    const row = await this.ordersRepository
+      .createQueryBuilder('order')
+      .withDeleted()
+      .select('order.id', 'id')
+      .addSelect('order.idempotency_fingerprint', 'fingerprint')
+      .addSelect('order.status', 'status')
+      .addSelect('order.zarinpalAuthority', 'authority')
+      .addSelect('order.deletedAt', 'deletedAt')
+      .where(
+        'order.userId = :userId AND order.idempotency_key = :idempotencyKey',
+        {
+          userId,
+          idempotencyKey,
+        },
+      )
+      .getRawOne<{
+        id: number;
+        fingerprint: string | null;
+        status: OrderStatusEnum;
+        authority: string | null;
+        deletedAt: Date | null;
+      }>();
+
+    if (!row) return null;
+    return {
+      id: Number(row.id),
+      fingerprint: row.fingerprint,
+      status: row.status,
+      authority: row.authority,
+      deleted: !!row.deletedAt,
+    };
+  }
+
+  private async replayExistingOrder(
+    existing: {
+      id: number;
+      fingerprint: string | null;
+      status: OrderStatusEnum;
+      authority: string | null;
+      deleted: boolean;
+    },
+    fingerprint: string,
+  ): Promise<CreateOrderResult> {
+    if (existing.fingerprint && existing.fingerprint !== fingerprint) {
+      throw new ConflictException(
+        'This Idempotency-Key was already used for a different order - use a new key',
+      );
+    }
+    if (existing.deleted) {
+      throw new ConflictException(
+        'The order created with this Idempotency-Key was deleted - use a new key',
+      );
+    }
+    const order = await this.findOne(existing.id);
+    if (
+      existing.status === OrderStatusEnum.AwaitingPayment &&
+      existing.authority
+    ) {
+      return {
+        order,
+        paymentUrl: this.zarinpalService.buildPaymentUrl(existing.authority),
+      };
+    }
+    return { order };
+  }
+
+  async findAll(
+    userId: number,
+    query: FilterOrderDto,
+    isAdmin = false,
+  ): Promise<PaginatedResult<Order>> {
+    const { status, page, limit } = query;
+    const base = {
+      deletedAt: IsNull(),
+      ...(isAdmin ? {} : { user: { id: userId } }),
+      ...(status ? { status } : {}),
+    };
+
+    // Any of: the order's id, a piece of its invoice number, or - for
+    // staff - a piece of the customer's mobile. Persian digits are read as
+    // the same digits.
+    const term = toAsciiDigits(query.search ?? '').trim();
+    const like = Like(`%${escapeLikePattern(term)}%`);
+    const where = term
+      ? [
+          { ...base, invoice_number: like },
+          ...(/^\d+$/.test(term) && Number(term) <= 2_147_483_647
+            ? [{ ...base, id: Number(term) }]
+            : []),
+          ...(isAdmin ? [{ ...base, user: { mobile: like } }] : []),
+        ]
+      : base;
+
+    const [items, total] = await this.ordersRepository.findAndCount({
+      select: ORDER_SELECT,
+      where,
+      withDeleted: true,
+      relations: ORDER_RELATIONS,
+      order: { createdAt: 'DESC', id: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  async findOne(id: number): Promise<Order> {
+    const order = await this.ordersRepository.findOne({
+      select: ORDER_SELECT,
+      where: { id, deletedAt: IsNull() },
+      withDeleted: true,
+      relations: ORDER_RELATIONS,
+    });
+
+    if (!order) {
+      throw new NotFoundException(`Order with id ${id} not found`);
+    }
+
+    return order;
+  }
+
+  async update(id: number, updateOrderDto: UpdateOrderDto): Promise<Order> {
+    const { addressId, items } = updateOrderDto;
+
+    const { savedOrder, stockChanged } = await this.dataSource.transaction(
+      async (manager) => {
+        const ordersRepo = manager.getRepository(Order);
+        const addressesRepo = manager.getRepository(Address);
+        const productsRepo = manager.getRepository(Product);
+        const orderItemsRepo = manager.getRepository(OrderItem);
+
+        await this.lockOrderRow(ordersRepo, { id }, id);
+        const order = await this.loadOrderForWrite(ordersRepo, id);
+
+        if (order.status !== OrderStatusEnum.Pending) {
+          throw AppError.badRequest(
+            ErrorCodes.ORDER_NOT_EDITABLE,
+            `Cannot modify an order once it is ${order.status} - only pending orders can be edited`,
+          );
+        }
+        if (order.zarinpalAuthority) {
+          throw AppError.badRequest(
+            ErrorCodes.ORDER_NOT_EDITABLE,
+            'This order already has an open payment session and can no longer be edited - cancel it (or let it expire) and place a new order',
+          );
+        }
+
+        if (addressId !== undefined) {
+          const newAddress = await addressesRepo.findOne({
+            where: { id: addressId },
+            relations: { user: true },
+          });
+          if (!newAddress) {
+            throw new NotFoundException(
+              `Address with id ${addressId} not found`,
+            );
+          }
+          if (newAddress.user.id !== order.user.id) {
+            throw new BadRequestException(
+              'This address does not belong to you',
+            );
+          }
+          order.address = newAddress;
+          order.shippingAddressSnapshot = {
+            province: newAddress.province,
+            city: newAddress.city,
+            address: newAddress.address,
+            postal_code: newAddress.postal_code,
+            receiver_mobile: newAddress.receiver_mobile,
+            description: newAddress.description,
+          };
+        }
+
+        if (items !== undefined) {
+          const previousItems = order.items ?? [];
+          const involvedProductIds = [
+            ...new Set([
+              ...previousItems
+                .map((item) => item.product?.id)
+                .filter((id): id is number => !!id),
+              ...items.map((item) => item.productId),
+            ]),
+          ].sort((a, b) => a - b);
+
+          const lockedProducts = await productsRepo.find({
+            where: { id: In(involvedProductIds) },
+            withDeleted: true,
+            order: { id: 'ASC' },
+            lock: { mode: 'pessimistic_write' },
+          });
+          const releasedLines = toStockLines(previousItems);
+          // Lines already on the order stay as they are; anything new has to
+          // be on sale today.
+          const alreadyOrdered = new Set(
+            previousItems.map((item) => item.product?.id),
+          );
+          this.assertAllForSale(
+            lockedProducts.filter(
+              (product) =>
+                !alreadyOrdered.has(product.id) &&
+                items.some((item) => item.productId === product.id),
+            ),
+          );
+          // What the order held goes back on the shelf first, so changing a
+          // quantity only needs the difference to be in stock.
+          const productsById = new Map(
+            lockedProducts.map((product) => [product.id, product]),
+          );
+          for (const line of releasedLines) {
+            const product = productsById.get(line.productId);
+            if (product) {
+              product.stock = Number(product.stock) + line.quantity;
+            }
+          }
+
+          const resolved = this.productsFor(
+            items,
+            lockedProducts.filter((product) => !product.deleted_at),
+          );
+          const updatedItems = items.map((item, index) => {
+            const product = resolved[index];
+            if (Number(product.stock) < item.quantity) {
+              throw this.insufficientStock(
+                product,
+                Number(product.stock),
+                item.quantity,
+              );
+            }
+
+            product.stock = Number(product.stock) - item.quantity;
+
+            return orderItemsRepo.create({
+              product,
+              price: product.effectivePrice(),
+              quantity: item.quantity,
+            });
+          });
+
+          await this.saveStock(manager, lockedProducts);
+
+          if (previousItems.length) {
+            await orderItemsRepo.remove(previousItems);
+          }
+
+          order.items = updatedItems;
+          const weightGrams = this.weightOf(resolved, items);
+          const scopedDiscount = order.discount
+            ? await this.discountCodesService.findWithScope(order.discount.id)
+            : null;
+          const totals = await this.priceOrder({
+            lines: updatedItems.map((item) => ({
+              price: item.price,
+              quantity: item.quantity,
+            })),
+            discountAmount: scopedDiscount
+              ? this.discountCodesService.computeAmount(
+                  scopedDiscount,
+                  await this.toDiscountLines(manager, items, updatedItems),
+                )
+              : 0,
+            province: order.address?.province ?? '',
+            weightGrams,
+            shippingMethodId: order.shipping_method?.id,
+            cashOnDelivery:
+              order.payment_method === PaymentMethodEnum.CashOnDelivery,
+          });
+          order.items_total = totals.items_total;
+          order.discount_amount = totals.discount_amount;
+          order.shipping_cost = totals.shipping_cost;
+          order.tax_amount = totals.tax_amount;
+          order.cod_fee = totals.cod_fee;
+          order.total_price = totals.total_price;
+          order.total_quantity = totals.total_quantity;
+          if (totals.shipping) {
+            order.shipping_method_title = totals.shipping.title;
+            order.shipping_eta_days_min = totals.shipping.estimatedDaysMin;
+            order.shipping_eta_days_max = totals.shipping.estimatedDaysMax;
+          }
+        }
+
+        return {
+          savedOrder: await ordersRepo.save(order),
+          stockChanged: items !== undefined,
+        };
+      },
+    );
+
+    if (stockChanged) {
+      await this.catalogCache.invalidate(CatalogCacheScope.Products);
+    }
+    return this.findOne(savedOrder.id);
+  }
+
+  async remove(id: number): Promise<void> {
+    const restoredProductIds = await this.dataSource.transaction(
+      async (manager) => {
+        const ordersRepo = manager.getRepository(Order);
+
+        await this.lockOrderRow(ordersRepo, { id }, id);
+        const order = await this.loadOrderForWrite(ordersRepo, id);
+
+        if (
+          order.status !== OrderStatusEnum.Pending &&
+          order.status !== OrderStatusEnum.Cancelled
+        ) {
+          throw new BadRequestException(
+            `Cannot delete an order that is ${order.status} - cancel it first via PATCH /orders/:id/status`,
+          );
+        }
+        if (
+          order.zarinpalAuthority &&
+          order.status !== OrderStatusEnum.Cancelled
+        ) {
+          throw new BadRequestException(
+            'This order has an open payment session - wait for it to be paid or to expire before deleting it',
+          );
+        }
+
+        let restored: number[] = [];
+        if (order.status === OrderStatusEnum.Pending && order.items?.length) {
+          restored = await restoreStock(manager, toStockLines(order.items));
+        }
+        await this.releaseDiscountReservation(order, manager);
+
+        await ordersRepo.softDelete({ id });
+        return restored;
+      },
+    );
+
+    if (restoredProductIds.length > 0) {
+      await this.catalogCache.invalidate(CatalogCacheScope.Products);
+    }
+  }
+
+  // A customer calling off their own order. It is a cancellation, not a
+  // delete: the order keeps its invoice number and stays in the panel. Only
+  // an order nobody has acted on yet qualifies - a cash-on-delivery order
+  // still waiting for the shop. The status is checked under the row lock,
+  // so an admin moving it on at the same moment wins cleanly.
+  async cancelByCustomer(id: number, actor: AuditActor): Promise<Order> {
+    return this.updateStatus(id, { status: OrderStatusEnum.Cancelled }, actor, {
+      onlyFrom: CUSTOMER_CANCELLABLE,
+    });
+  }
+
+  async updateStatus(
+    id: number,
+    updateOrderStatusDto: UpdateOrderStatusDto,
+    actor?: AuditActor,
+    options: { onlyFrom?: OrderStatusEnum[] } = {},
+  ): Promise<Order> {
+    const { status: newStatus, tracking_code } = updateOrderStatusDto;
+
+    let previousStatus: OrderStatusEnum | null = null;
+    let sameStatus = false;
+    let refunded = 0;
+    const { savedOrderId, restoredProductIds } =
+      await this.dataSource.transaction(async (manager) => {
+        const ordersRepo = manager.getRepository(Order);
+
+        await this.lockOrderRow(ordersRepo, { id }, id);
+        const order = await this.loadOrderForWrite(ordersRepo, id);
+
+        previousStatus = order.status;
+        if (
+          options.onlyFrom &&
+          order.status !== newStatus &&
+          !options.onlyFrom.includes(order.status)
+        ) {
+          throw AppError.badRequest(
+            ErrorCodes.ORDER_NOT_CANCELLABLE,
+            `An order that is ${order.status} can no longer be cancelled - contact support`,
+          );
+        }
+        const allowedNext = allowedNextStatuses(order);
+        if (order.status !== newStatus && !allowedNext.includes(newStatus)) {
+          throw AppError.badRequest(
+            ErrorCodes.INVALID_STATUS_TRANSITION,
+            `Cannot move an order from ${order.status} to ${newStatus}`,
+          );
+        }
+
+        // Re-sending the current status is how the panel corrects a
+        // tracking code - and that is all it may do. Running the status's
+        // side effects again counted the sale a second time (sales_count
+        // drives "best selling") and asked for another invoice number.
+        if (order.status === newStatus) {
+          sameStatus = true;
+          if (tracking_code !== undefined) {
+            await ordersRepo.update({ id: order.id }, { tracking_code });
+          }
+          return { savedOrderId: order.id, restoredProductIds: [] };
+        }
+
+        let restored: number[] = [];
+        if (newStatus === OrderStatusEnum.Cancelled) {
+          // A refused COD parcel comes back too (see allowedNextStatuses).
+          const goodsComeBack =
+            CANCELLABLE_WITH_STOCK_RESTORE.includes(order.status) ||
+            order.status === OrderStatusEnum.Sent;
+          if (goodsComeBack && order.items?.length) {
+            restored = await restoreStock(manager, toStockLines(order.items));
+          }
+          await this.releaseDiscountReservation(order, manager);
+          // Only money that was actually received goes back.
+          if (
+            REFUNDABLE_ON_CANCEL.includes(order.status) &&
+            moneyReceived(order) &&
+            order.total_price > order.refunded_amount
+          ) {
+            const refundAmount = order.total_price - order.refunded_amount;
+            refunded = refundAmount;
+            await this.walletsService.refund(
+              order.user.id,
+              refundAmount,
+              `Refund for cancelled order #${order.id}`,
+              manager,
+            );
+            order.refunded_amount = order.total_price;
+          }
+        }
+
+        order.status = newStatus;
+        if (tracking_code !== undefined) {
+          order.tracking_code = tracking_code;
+        }
+        if (newStatus === OrderStatusEnum.Paid && !order.payed_time) {
+          order.payed_time = new Date();
+        }
+        // Counted once, when the order is first sold: on payment, or for
+        // cash on delivery when the shop takes it on without one.
+        if (
+          newStatus === OrderStatusEnum.Paid ||
+          (previousStatus === OrderStatusEnum.Pending &&
+            newStatus === OrderStatusEnum.Processing)
+        ) {
+          await this.countSales(manager, order.id, 1);
+        }
+        if (
+          newStatus === OrderStatusEnum.Cancelled &&
+          previousStatus &&
+          SOLD_STATUSES.includes(previousStatus)
+        ) {
+          await this.countSales(manager, order.id, -1);
+        }
+        if (newStatus === OrderStatusEnum.Delivered && !order.delivered_at) {
+          order.delivered_at = new Date();
+        }
+        // The courier collected the cash at the door.
+        if (newStatus === OrderStatusEnum.Delivered && !order.payed_time) {
+          order.payed_time = new Date();
+        }
+        if (newStatus === OrderStatusEnum.Paid && !order.invoice_number) {
+          order.invoice_number = await this.invoiceService.nextNumber(manager);
+        }
+        if (
+          newStatus === OrderStatusEnum.Paid ||
+          newStatus === OrderStatusEnum.Cancelled
+        ) {
+          order.payment_expires_at = null;
+        }
+        const saved = await ordersRepo.save(order);
+
+        return { savedOrderId: saved.id, restoredProductIds: restored };
+      });
+
+    if (restoredProductIds.length > 0) {
+      await this.catalogCache.invalidate(CatalogCacheScope.Products);
+    }
+
+    await this.auditService.record({
+      action: 'order.status_changed',
+      entityType: 'order',
+      entityId: savedOrderId,
+      actor,
+      changes: {
+        status: { from: previousStatus, to: newStatus },
+        ...(refunded > 0 ? { refunded_to_wallet: refunded } : {}),
+        ...(tracking_code ? { tracking_code } : {}),
+      },
+    });
+
+    const order = await this.findOne(savedOrderId);
+    if (sameStatus) {
+      return order;
+    }
+    const event =
+      newStatus === OrderStatusEnum.Paid
+        ? NotificationEventEnum.OrderPaid
+        : newStatus === OrderStatusEnum.Sent
+          ? NotificationEventEnum.OrderSent
+          : newStatus === OrderStatusEnum.Delivered
+            ? NotificationEventEnum.OrderDelivered
+            : newStatus === OrderStatusEnum.Cancelled
+              ? NotificationEventEnum.OrderCancelled
+              : null;
+    if (event) {
+      await this.notifications.notify(order, event);
+    }
+    return order;
+  }
+
+  // The one way an unpaid order ends: stock and the discount reservation
+  // go back, and the order is marked cancelled - never deleted, so a
+  // late callback still finds it.
+  async cancelUnpaidOrder(orderId: number, reason: string): Promise<boolean> {
+    const restoredProductIds = await this.dataSource.transaction(
+      async (manager) => {
+        const ordersRepo = manager.getRepository(Order);
+        const locked = await ordersRepo.findOne({
+          select: { id: true, status: true },
+          where: { id: orderId },
+          withDeleted: true,
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!locked || !UNPAID_STATUSES.includes(locked.status)) {
+          return [];
+        }
+
+        const order = await this.loadOrderForWrite(ordersRepo, orderId);
+        const restored = order.items?.length
+          ? await restoreStock(manager, toStockLines(order.items))
+          : [];
+        await this.releaseDiscountReservation(order, manager);
+        await ordersRepo.update(
+          { id: orderId },
+          {
+            status: OrderStatusEnum.Cancelled,
+            payment_expires_at: null,
+          },
+        );
+        this.logger.log(`Order ${orderId} cancelled: ${reason}`);
+        return restored;
+      },
+    );
+
+    if (restoredProductIds.length > 0) {
+      await this.catalogCache.invalidate(CatalogCacheScope.Products);
+    }
+    return restoredProductIds.length > 0;
+  }
+
+  async finalizePaidOrder(
+    orderId: number,
+    paymentReference: string,
+  ): Promise<PaymentOutcome> {
+    const outcome = await this.settlePaidOrder(orderId, paymentReference);
+    if (outcome === 'paid') {
+      // settlePaidOrder is the one path that moves sales_count without
+      // touching the catalogue cache, so the public product list kept
+      // serving a stale sales_count - which is what "best selling" sorts on.
+      await this.catalogCache.invalidate(CatalogCacheScope.Products);
+      await this.notifications.notify(
+        await this.findOne(orderId),
+        NotificationEventEnum.OrderPaid,
+      );
+    }
+    return outcome;
+  }
+
+  // A payment that lands after the order was cancelled is refunded to the
+  // wallet rather than ignored - the money did leave the customer.
+  private async settlePaidOrder(
+    orderId: number,
+    paymentReference: string,
+  ): Promise<PaymentOutcome> {
+    return this.dataSource.transaction(async (manager) => {
+      const ordersRepo = manager.getRepository(Order);
+      const locked = await ordersRepo.findOne({
+        select: { id: true, status: true },
+        where: { id: orderId },
+        withDeleted: true,
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!locked) {
+        throw new NotFoundException(`Order with id ${orderId} not found`);
+      }
+      // Every status from `paid` onwards means this payment was already
+      // settled. A customer can reopen the callback URL at any time and
+      // ZarinPal verifies a repeat with 101, so an order the shop has since
+      // moved to processing/sent/delivered must not be read as "paid after
+      // it closed" - that branch refunded the whole amount to the wallet.
+      if (SOLD_STATUSES.includes(locked.status)) {
+        return 'already_paid';
+      }
+
+      const order = await this.loadOrderForWrite(ordersRepo, orderId);
+
+      if (UNPAID_STATUSES.includes(order.status) && !order.deletedAt) {
+        if (order.discount && !order.discount_reserved) {
+          await this.discountCodesService.consumeOne(order.discount, manager);
+          await ordersRepo.update({ id: orderId }, { discount_reserved: true });
+        }
+        await this.countSales(manager, orderId, 1);
+        await ordersRepo.update(
+          { id: orderId },
+          {
+            status: OrderStatusEnum.Paid,
+            payed_time: new Date(),
+            payment_reference: paymentReference,
+            payment_expires_at: null,
+            ...(order.invoice_number
+              ? {}
+              : {
+                  invoice_number: await this.invoiceService.nextNumber(manager),
+                }),
+          },
+        );
+        return 'paid';
+      }
+
+      const refundAmount = order.total_price - order.refunded_amount;
+      if (refundAmount > 0) {
+        await this.walletsService.refund(
+          order.user.id,
+          refundAmount,
+          `Refund for order #${order.id} paid after it was closed`,
+          manager,
+        );
+        await ordersRepo.update(
+          { id: orderId },
+          {
+            refunded_amount: order.total_price,
+            payment_reference: paymentReference,
+          },
+        );
+      }
+      this.logger.warn(
+        `Order ${orderId} was paid after it closed - ${refundAmount} refunded to the customer's wallet`,
+      );
+      await this.auditService.record({
+        action: 'order.refunded_late_payment',
+        entityType: 'order',
+        entityId: orderId,
+        changes: { amount: refundAmount, reference: paymentReference },
+      });
+      return 'refunded';
+    });
+  }
+
+  // A product the shop has unpublished is hidden from the catalogue, so it
+  // must not be orderable by id either.
+  private assertAllForSale(products: Product[]): void {
+    const hidden = products.find((product) => !product.is_published);
+    if (hidden) {
+      throw AppError.badRequest(
+        ErrorCodes.PRODUCT_NOT_FOR_SALE,
+        `${hidden.title} is not for sale`,
+        { productId: hidden.id },
+      );
+    }
+  }
+
+  async findByAuthority(authority: string): Promise<Order | null> {
+    return this.ordersRepository.findOne({
+      where: { zarinpalAuthority: authority },
+      withDeleted: true,
+      relations: { user: true },
+    });
+  }
+
+  // The product each line is for, in line order. The products themselves
+  // were read (and, outside a quote, locked) by the caller.
+  private productsFor(
+    items: Array<{ productId: number }>,
+    products: Product[],
+  ): Product[] {
+    const productsById = new Map(
+      products.map((product) => [product.id, product]),
+    );
+    return items.map((item) => {
+      const product = productsById.get(item.productId);
+      if (!product) {
+        throw new BadRequestException('One or more product IDs are invalid');
+      }
+      return product;
+    });
+  }
+
+  // Written as plain column updates, not entity saves: the rows are locked
+  // by this transaction and only their stock has changed.
+  private async saveStock(
+    manager: EntityManager,
+    products: Product[],
+  ): Promise<void> {
+    for (const product of [...products].sort((a, b) => a.id - b.id)) {
+      await manager
+        .getRepository(Product)
+        .update({ id: product.id }, { stock: Number(product.stock) });
+    }
+  }
+
+  private weightOf(
+    products: Product[],
+    items: Array<{ quantity: number }>,
+  ): number {
+    return products.reduce(
+      (total, product, index) =>
+        total + Number(product.weight_grams ?? 0) * items[index].quantity,
+      0,
+    );
+  }
+
+  // Keeps products.sales_count honest: counted when an order is paid,
+  // given back when a paid order is cancelled. GREATEST stops it from
+  // going negative if history is ever edited by hand.
+  private async countSales(
+    manager: EntityManager,
+    orderId: number,
+    sign: 1 | -1,
+  ): Promise<void> {
+    await manager.query(
+      'UPDATE `products` p INNER JOIN (' +
+        'SELECT `product_id`, SUM(`quantity`) AS q FROM `order_items` ' +
+        'WHERE `order_id` = ? GROUP BY `product_id`' +
+        ') oi ON oi.`product_id` = p.`id` ' +
+        'SET p.`sales_count` = GREATEST(CAST(p.`sales_count` AS SIGNED) + (? * oi.q), 0)',
+      [orderId, sign],
+    );
+  }
+
+  private async toDiscountLines(
+    manager: EntityManager,
+    items: Array<{ productId: number; quantity: number }>,
+    lines: Array<{ price: number; quantity: number }>,
+  ): Promise<DiscountLine[]> {
+    const productIds = [...new Set(items.map((item) => item.productId))];
+    if (productIds.length === 0) return [];
+
+    const rows: Array<{ product_id: number; category_id: number }> =
+      await manager.query(
+        'SELECT `product_id`, `category_id` FROM `product_category` WHERE `product_id` IN (' +
+          productIds.map(() => '?').join(', ') +
+          ')',
+        productIds,
+      );
+    const categoriesByProduct = new Map<number, number[]>();
+    for (const row of rows) {
+      const list = categoriesByProduct.get(Number(row.product_id)) ?? [];
+      list.push(Number(row.category_id));
+      categoriesByProduct.set(Number(row.product_id), list);
+    }
+
+    return items.map((item, index) => ({
+      productId: item.productId,
+      categoryIds: categoriesByProduct.get(item.productId) ?? [],
+      lineTotal: Number(lines[index]?.price ?? 0) * item.quantity,
+    }));
+  }
+
+  private async releaseDiscountReservation(
+    order: Order,
+    manager: EntityManager,
+  ): Promise<void> {
+    if (!order.discount || !order.discount_reserved) {
+      return;
+    }
+    await this.discountCodesService.releaseOne(order.discount.id, manager);
+    await manager
+      .getRepository(Order)
+      .update({ id: order.id }, { discount_reserved: false });
+    order.discount_reserved = false;
+  }
+
+  private async lockOrderRow(
+    ordersRepo: Repository<Order>,
+    where: FindOptionsWhere<Order>,
+    id: number,
+  ): Promise<void> {
+    const locked = await ordersRepo.findOne({
+      select: { id: true },
+      where: { ...where, deletedAt: IsNull() },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!locked) {
+      throw new NotFoundException(`Order with id ${id} not found`);
+    }
+  }
+
+  private async loadOrderForWrite(
+    ordersRepo: Repository<Order>,
+    id: number,
+  ): Promise<Order> {
+    const order = await ordersRepo.findOne({
+      where: { id },
+      withDeleted: true,
+      relations: {
+        user: true,
+        address: true,
+        discount: true,
+        shipping_method: true,
+        items: { product: true },
+      },
+    });
+    if (!order) {
+      throw new NotFoundException(`Order with id ${id} not found`);
+    }
+    return order;
+  }
+}

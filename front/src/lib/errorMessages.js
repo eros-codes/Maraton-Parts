@@ -1,0 +1,134 @@
+// The API answers with a stable `code`; the Persian sentence lives here.
+//
+// This is the whole reason the backend returns codes: matching on
+// English message text would break the first time a sentence is
+// reworded, and the customer would be shown English either way.
+const MESSAGES = {
+  VALIDATION_FAILED: 'اطلاعات واردشده کامل یا درست نیست.',
+  BAD_REQUEST: 'درخواست نامعتبر است.',
+  UNAUTHORIZED: 'برای این کار باید وارد حساب‌تان شوید.',
+  FORBIDDEN: 'به این بخش دسترسی ندارید.',
+  NOT_FOUND: 'موردی که دنبالش بودید پیدا نشد.',
+  CONFLICT: 'این مورد از قبل وجود دارد.',
+  TOO_MANY_REQUESTS: 'تعداد درخواست‌ها زیاد بود؛ کمی بعد دوباره تلاش کنید.',
+  INTERNAL_ERROR: 'خطایی در سرور رخ داد. لطفاً دوباره تلاش کنید.',
+
+  CANNOT_CHANGE_OWN_ROLE: 'نقش حساب خودتان را نمی‌توانید تغییر دهید؛ از مدیر دیگری بخواهید.',
+  LAST_ADMIN: 'این تنها مدیر فروشگاه است؛ اول کس دیگری را مدیر کنید.',
+  DEMO_ACCOUNT_LOCKED:
+    'این یک حساب نمایشی مشترک است؛ در دمو نمی‌شود رمز، نقش یا خودِ آن را تغییر داد.',
+  STOCK_CHANGED: 'موجودی تغییر کرده است؛ صفحه را تازه کنید.',
+  INSUFFICIENT_STOCK: 'موجودی کافی نیست.',
+  OUT_OF_STOCK: 'این کالا موجود نیست.',
+  ATTRIBUTE_IN_USE: 'کالاهایی با این ویژگی توصیف شده‌اند؛ تا وقتی هستند، نوع این ویژگی عوض نمی‌شود.',
+  CATEGORY_HAS_CHILDREN: 'این دسته‌بندی زیرمجموعه دارد؛ اول آن‌ها را جابه‌جا یا حذف کنید.',
+  CATEGORY_LOOP: 'دسته‌بندی را نمی‌شود زیرمجموعه‌ی خودش یا زیرمجموعه‌هایش کرد.',
+  MOBILE_ALREADY_REGISTERED: 'با این شماره موبایل قبلاً حساب ساخته شده است.',
+  IMAGE_UNREADABLE: 'یکی از تصاویر خوانده نشد؛ فایل خراب است یا ابعادش بیش از حد بزرگ است.',
+  PRODUCT_NOT_FOR_SALE: 'این کالا در حال حاضر قابل سفارش نیست.',
+  REQUIRED_ATTRIBUTE_MISSING: 'یکی از ویژگی‌های ضروری این دسته‌بندی پر نشده است.',
+  INVALID_ATTRIBUTE_VALUE: 'مقدار انتخاب‌شده برای این ویژگی معتبر نیست.',
+
+  SHIPPING_METHOD_REQUIRED: 'لطفاً روش ارسال را انتخاب کنید.',
+  SHIPPING_METHOD_UNAVAILABLE: 'این روش ارسال برای آدرس انتخابی موجود نیست.',
+  PAYMENT_METHOD_REQUIRED: 'لطفاً یک روش پرداخت انتخاب کنید.',
+  COD_NOT_SUPPORTED: 'پرداخت در محل برای این روش ارسال ممکن نیست.',
+  COD_LIMIT_EXCEEDED: 'مبلغ سفارش برای پرداخت در محل زیاد است؛ لطفاً آنلاین پرداخت کنید.',
+  IDEMPOTENCY_KEY_REQUIRED: 'درخواست ناقص بود؛ دوباره تلاش کنید.',
+  ORDER_NOT_EDITABLE: 'این سفارش دیگر قابل ویرایش نیست.',
+  ORDER_NOT_CANCELLABLE: 'این سفارش دیگر قابل لغو نیست؛ با پشتیبانی تماس بگیرید.',
+  INVALID_STATUS_TRANSITION: 'این تغییر وضعیت ممکن نیست.',
+
+  INSUFFICIENT_WALLET_BALANCE: 'موجودی کیف پول کافی نیست.',
+  WALLET_INACTIVE: 'کیف پول شما غیرفعال است.',
+  PAYMENT_GATEWAY_UNAVAILABLE: 'درگاه پرداخت در دسترس نیست؛ کمی بعد تلاش کنید.',
+  AMOUNT_TOO_LARGE: 'مبلغ از حد مجاز بیشتر است.',
+  FILE_TOO_LARGE:
+    'حجم فایل بیشتر از حد مجاز است؛ تصویری کوچک‌تر از ۵ مگابایت انتخاب کنید.',
+
+  DISCOUNT_NOT_FOUND: 'کد تخفیف معتبر نیست.',
+  DISCOUNT_EXHAUSTED: 'ظرفیت این کد تخفیف تمام شده است.',
+  DISCOUNT_NOT_STARTED: 'این کد تخفیف هنوز فعال نشده است.',
+  DISCOUNT_EXPIRED: 'این کد تخفیف منقضی شده است.',
+  DISCOUNT_MIN_ORDER_NOT_MET: 'مبلغ سبد شما به حداقل این کد تخفیف نمی‌رسد.',
+  DISCOUNT_USER_LIMIT_REACHED: 'شما قبلاً از این کد تخفیف استفاده کرده‌اید.',
+  DISCOUNT_NOT_APPLICABLE: 'این کد به کالاهای سبد شما تعلق نمی‌گیرد.',
+
+  INVALID_CREDENTIALS: 'شماره موبایل یا رمز عبور درست نیست.',
+  OTP_INCORRECT: 'کد واردشده درست نیست.',
+  OTP_EXPIRED: 'کد منقضی شده است؛ لطفاً کد جدید بگیرید.',
+  OTP_ATTEMPTS_EXCEEDED: 'تعداد تلاش‌ها زیاد بود؛ لطفاً کد جدید بگیرید.',
+  OTP_NOT_FOUND: 'درخواستی برای این شماره ثبت نشده است.',
+  OTP_COOLDOWN: 'کد قبلی همین الان فرستاده شد؛ کمی صبر کنید و دوباره درخواست کنید.',
+  OTP_SEND_LIMIT: 'برای این شماره کد زیادی درخواست شده است؛ کمی بعد دوباره تلاش کنید.',
+  CURRENT_PASSWORD_INCORRECT: 'رمز عبور فعلی درست نیست.',
+
+  RETURN_WINDOW_CLOSED: 'مهلت مرجوع‌کردن این سفارش گذشته است.',
+  RETURN_NOT_ALLOWED: 'این سفارش قابل مرجوع‌کردن نیست.',
+  RETURN_QUANTITY_EXCEEDED: 'تعداد مرجوعی بیشتر از چیزی است که خریده‌اید.',
+  REFUND_EXCEEDS_PAID: 'مبلغ بازگشتی از مبلغ پرداختی بیشتر است.',
+
+  TICKET_CLOSED: 'این تیکت بسته شده است؛ اگر هنوز مشکلی دارید، تیکت تازه‌ای ثبت کنید.',
+  TICKET_COOLDOWN: 'پیام قبلی‌تان همین الان ثبت شد؛ چند ثانیه صبر کنید و دوباره بفرستید.',
+  TICKET_LIMIT_REACHED:
+    'چند تیکت باز دارید؛ لطفاً در یکی از همان‌ها ادامه دهید تا کارشناسان پاسخ دهند.',
+
+  NETWORK_ERROR: 'ارتباط با سرور برقرار نشد. اینترنت یا سرور را بررسی کنید.',
+};
+
+// Some failures are more useful with the numbers the API sent back.
+function withDetails(code, details) {
+  if (!details) return null;
+  if (code === 'REQUIRED_ATTRIBUTE_MISSING' && Array.isArray(details.missing)) {
+    return `این ویژگی‌ها برای این دسته‌بندی ضروری‌اند و باید پر شوند: ${details.missing.join('، ')}`;
+  }
+  if (code === 'INSUFFICIENT_STOCK' && details.available !== undefined) {
+    // Name the line when the API tells us which one it is: in a basket with
+    // several items, an unqualified "out of stock" is not actionable.
+    const subject = details.productTitle ? `«${details.productTitle}»` : 'این کالا';
+    return details.available > 0
+      ? `از ${subject} تنها ${details.available} عدد موجود است؛ تعداد را کم کنید.`
+      : `${subject} موجود نیست؛ لطفاً از سبد حذفش کنید.`;
+  }
+  if (code === 'INSUFFICIENT_WALLET_BALANCE' && details.balance !== undefined) {
+    return 'موجودی کیف پول کافی نیست؛ ابتدا کیف پول را شارژ کنید.';
+  }
+  if (code === 'OTP_INCORRECT' && details.attemptsLeft !== undefined) {
+    return `کد واردشده درست نیست. ${details.attemptsLeft} تلاش دیگر باقی مانده است.`;
+  }
+  if (code === 'OTP_COOLDOWN' && details.retryAfter !== undefined) {
+    return `لطفاً ${Number(details.retryAfter).toLocaleString('fa-IR')} ثانیه دیگر دوباره کد بگیرید.`;
+  }
+  if (code === 'OTP_SEND_LIMIT' && details.retryAfter !== undefined) {
+    const minutes = Math.ceil(Number(details.retryAfter) / 60);
+    return `برای این شماره کد زیادی درخواست شده است؛ ${minutes.toLocaleString('fa-IR')} دقیقه دیگر دوباره تلاش کنید.`;
+  }
+  if (code === 'TICKET_COOLDOWN' && details.retryAfter !== undefined) {
+    return `لطفاً ${Number(details.retryAfter).toLocaleString('fa-IR')} ثانیه دیگر دوباره بفرستید.`;
+  }
+  if (code === 'TICKET_LIMIT_REACHED' && details.openThreads !== undefined) {
+    return `${Number(details.openThreads).toLocaleString('fa-IR')} تیکت باز دارید؛ لطفاً در یکی از همان‌ها ادامه دهید تا کارشناسان پاسخ دهند.`;
+  }
+  return null;
+}
+
+export function translateError(error) {
+  if (!error) return MESSAGES.INTERNAL_ERROR;
+  const { code, details, fieldErrors } = error;
+
+  const detailed = withDetails(code, details);
+  if (detailed) return detailed;
+
+  if (code === 'VALIDATION_FAILED' && fieldErrors?.length) {
+    // Field errors come straight from the server's DTO validators, which
+    // are written in English. Showing one verbatim put "Title cannot be
+    // empty" in front of a Persian-speaking user. Only pass it through when
+    // it is already Persian; otherwise fall back to the generic wording.
+    const first = fieldErrors.find((m) => /[\u0600-\u06FF]/.test(m));
+    if (first) return first;
+  }
+
+  return MESSAGES[code] ?? error.message ?? MESSAGES.INTERNAL_ERROR;
+}
+
+export default MESSAGES;

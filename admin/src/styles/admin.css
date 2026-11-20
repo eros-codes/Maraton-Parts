@@ -1,0 +1,1391 @@
+/* ===========================================================
+   Maraton Parts admin — a dark rail, a light workspace, dense tables
+   =========================================================== */
+:root {
+  /* Primary: black, charcoal and the greys between them and white. */
+  --brand-900: #000000;
+  --brand-800: #0d0d0d;
+  --brand-700: #141414;
+  --brand-600: #2f2f2f;
+  --brand-500: #4a4a4a;
+  --brand-100: #ecebe8;
+  --brand-50: #f5f4f1;
+
+  /* Secondary: the golds. */
+  --gold-700: #84682c;
+  --gold-600: #a07f3a;
+  --wheat-500: #c8aa6f;
+  --sand-300: #e3d5bb;
+  --sand-100: #f2ebdd;
+  --sand-50: #f9f5ee;
+
+  --accent-600: var(--gold-600);
+  --accent-500: var(--wheat-500);
+  --accent-50: var(--sand-50);
+  --success-600: #0f9d58;
+  --success-50: #e7f7ef;
+  --warning-600: #c77700;
+  --warning-50: #fdf3e2;
+  --danger-600: #d93025;
+  --danger-50: #fdecea;
+  --info-50: #f2efe8;
+
+  --ink-900: #0a0a0a;
+  --ink-700: #2f2f2f;
+  --ink-500: #5e5d5a;
+  --ink-400: #8a8884;
+  --ink-300: #b8b5ae;
+  --line: #e9e6df;
+  --line-strong: #d8d3c8;
+  --surface: #ffffff;
+  --surface-2: #faf9f6;
+  --page: #f6f5f2;
+
+  --radius-sm: 9px;
+  --radius: 14px;
+  --radius-lg: 20px;
+  --radius-pill: 999px;
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.06);
+  --shadow: 0 12px 34px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.16);
+
+  --rail: 248px;
+  --topbar: 64px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Morabba', 'Vazirmatn', system-ui, sans-serif;
+  /* Morabba's spaces are narrow; see fonts.css. */
+  word-spacing: 0.12em;
+  background: var(--page);
+  color: var(--ink-900);
+  font-size: 14px;
+  line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  word-spacing: inherit;
+  color: inherit;
+}
+
+ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+:focus-visible {
+  outline: 2px solid var(--gold-600);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ---------- shell ---------- */
+.shell {
+  display: grid;
+  grid-template-columns: var(--rail) 1fr;
+  min-height: 100vh;
+}
+
+.rail {
+  background: linear-gradient(180deg, var(--brand-900), #141414);
+  color: #d6d1c6;
+  padding: 18px 14px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rail-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  margin-bottom: 12px;
+}
+
+.rail-logo img {
+  height: 38px;
+  width: auto;
+  flex-shrink: 0;
+}
+
+.rail-logo-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rail-logo b {
+  font-size: 17px;
+  font-weight: 900;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.rail-logo span {
+  font-size: 11px;
+  color: var(--wheat-500);
+}
+
+.rail-group {
+  font-size: 10.5px;
+  letter-spacing: 0.6px;
+  color: #8a8378;
+  padding: 14px 12px 6px;
+}
+
+.rail-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  color: #d6d1c6;
+  transition: all 0.15s ease;
+}
+
+.rail-link:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
+}
+
+.rail-link.is-active {
+  background: var(--brand-600);
+  color: #fff;
+  font-weight: 600;
+  /* A gold edge on the rail's inner side, which is the right in RTL. */
+  box-shadow: inset -3px 0 0 var(--gold-600);
+}
+
+.rail-link .badge {
+  margin-inline-start: auto;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.topbar {
+  height: var(--topbar);
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 22px;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+
+/* The storefront's gold hairline, under the panel's top bar. */
+.topbar::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--wheat-500) 25%, var(--gold-600) 50%, var(--wheat-500) 75%, transparent);
+  pointer-events: none;
+}
+
+.topbar h1 {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.topbar .who {
+  margin-inline-start: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--ink-500);
+}
+
+.content {
+  padding: 22px;
+  flex: 1;
+}
+
+/* ---------- cards & grids ---------- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-xs);
+}
+
+.card-pad {
+  padding: 18px;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.card-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.grid {
+  display: grid;
+  gap: 16px;
+}
+
+.cols-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* Was an inline style, which no media query can override - the dashboard
+   kept its two columns on a phone and dragged the page sideways. */
+.grid.cols-wide-narrow {
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+}
+
+/* A grid item's default min-width is its content, so one wide child (the
+   14-day chart) widens its track no matter what the template says. */
+.grid > * {
+  min-width: 0;
+}
+
+.cols-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.cols-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.spread {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.wrap {
+  flex-wrap: wrap;
+}
+
+/* Prices, invoice numbers: a line break inside one is a misreading. */
+.nowrap {
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--ink-500);
+}
+
+.small {
+  font-size: 12.5px;
+}
+
+.tiny {
+  font-size: 11.5px;
+}
+
+.strong {
+  font-weight: 700;
+}
+
+.divider {
+  height: 1px;
+  background: var(--line);
+  margin-block: 12px;
+}
+
+/* ---------- stats ---------- */
+.stat {
+  padding: 18px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.stat-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: var(--sand-50);
+  color: var(--gold-700);
+  flex-shrink: 0;
+}
+
+/* Morabba's heavy weights are wider than the old font: a month's sales
+   ran out of its card. The text column may shrink, and a figure that
+   still does not fit wraps before "تومان" instead of spilling out. */
+.stat > :last-child {
+  min-width: 0;
+}
+
+.stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-number {
+  white-space: nowrap;
+}
+
+.stat-unit {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-500);
+  white-space: nowrap;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: var(--ink-400);
+}
+
+/* ---------- table ---------- */
+.table-wrap {
+  overflow-x: auto;
+}
+
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+table.data th {
+  text-align: start;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--ink-500);
+  background: var(--surface-2);
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+table.data td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+table.data tbody tr:hover {
+  background: var(--surface-2);
+}
+
+table.data tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.cell-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.thumb {
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* ---------- controls ---------- */
+.btn {
+  --bg: var(--brand-700);
+  --fg: #fff;
+  --bd: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--bd);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) {
+  filter: brightness(1.06);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-ghost {
+  --bg: var(--surface);
+  --fg: var(--ink-700);
+  --bd: var(--line-strong);
+}
+
+.btn-soft {
+  --bg: var(--brand-50);
+  --fg: var(--brand-700);
+}
+
+.btn-danger {
+  --bg: var(--danger-50);
+  --fg: var(--danger-600);
+  --bd: #f6cdc9;
+}
+
+.btn-success {
+  --bg: var(--success-50);
+  --fg: var(--success-600);
+  --bd: #c3e7d5;
+}
+
+.btn-sm {
+  padding: 6px 11px;
+  font-size: 12px;
+}
+
+.btn-block {
+  width: 100%;
+}
+
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-500);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.icon-btn:hover {
+  color: var(--brand-700);
+  border-color: var(--brand-100);
+  background: var(--brand-50);
+}
+
+.icon-btn.danger:hover {
+  color: var(--danger-600);
+  border-color: #f6cdc9;
+  background: var(--danger-50);
+}
+
+.input,
+.select,
+.textarea {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  transition: all 0.15s ease;
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--gold-600);
+  box-shadow: 0 0 0 3px var(--sand-100);
+}
+
+.textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.field-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-700);
+}
+
+.field-hint {
+  font-size: 11.5px;
+  color: var(--ink-400);
+}
+
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.checkbox input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--brand-700);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.search-box {
+  position: relative;
+  min-width: 240px;
+  flex: 1;
+  max-width: 360px;
+}
+
+.search-box input {
+  padding-inline-start: 36px;
+}
+
+.search-box svg {
+  position: absolute;
+  inset-inline-start: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ink-300);
+}
+
+/* ---------- badges ---------- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  font-size: 11.5px;
+  font-weight: 600;
+  background: var(--brand-50);
+  color: var(--brand-700);
+  white-space: nowrap;
+}
+
+.badge-success {
+  background: var(--success-50);
+  color: var(--success-600);
+}
+
+.badge-warning {
+  background: var(--warning-50);
+  color: var(--warning-600);
+}
+
+.badge-danger {
+  background: var(--danger-50);
+  color: var(--danger-600);
+}
+
+.badge-muted {
+  background: var(--surface-2);
+  color: var(--ink-500);
+  border: 1px solid var(--line);
+}
+
+/* ---------- support tickets ---------- */
+/* Support's own answers on the start side, the customer's on the end side,
+   so who said what reads at a glance. */
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.thread-msg {
+  align-self: flex-end;
+  max-width: min(88%, 620px);
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  border-start-end-radius: 4px;
+  background: var(--surface-2);
+}
+
+.thread-msg[data-own='true'] {
+  align-self: flex-start;
+  border-color: var(--brand-100);
+  border-radius: var(--radius);
+  border-start-start-radius: 4px;
+  background: var(--brand-50);
+}
+
+.thread-msg-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 2px;
+}
+
+.thread-msg-body {
+  font-size: 13.5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- modal ---------- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  animation: fade 0.18s ease both;
+}
+
+.modal {
+  width: min(100%, 640px);
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  animation: pop 0.2s ease both;
+}
+
+.modal-wide {
+  width: min(100%, 900px);
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 1;
+}
+
+.modal-body {
+  padding: 20px;
+}
+
+.modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--line);
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+}
+
+/* ---------- chart ---------- */
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 190px;
+  padding-top: 10px;
+  /* Each column carries a date label, so it will not shrink below about
+     31px - fourteen of those are wider than a phone and used to drag the
+     whole dashboard sideways. Scrolling the chart keeps the bars readable
+     instead of squeezing them into unreadable slivers. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.chart-col {
+  flex: 1 0 auto;
+  min-width: 30px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  min-width: 0;
+}
+
+.chart-bar {
+  width: 100%;
+  max-width: 34px;
+  border-radius: 6px 6px 0 0;
+  /* Quiet grey columns; only the best period is gold, so the eye lands on it. */
+  background: linear-gradient(180deg, var(--ink-300), var(--line-strong));
+  transition: height 0.4s ease, background 0.15s ease;
+  position: relative;
+}
+
+.chart-bar:hover {
+  background: linear-gradient(180deg, var(--brand-500), var(--brand-600));
+}
+
+.chart-bar.is-peak {
+  background: linear-gradient(180deg, var(--wheat-500), var(--gold-600));
+}
+
+.chart-bar:hover::after {
+  content: attr(data-value);
+  position: absolute;
+  bottom: 100%;
+  inset-inline-start: 50%;
+  transform: translateX(50%);
+  margin-bottom: 6px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--ink-900);
+  color: #fff;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.chart-label {
+  font-size: 10.5px;
+  color: var(--ink-400);
+  white-space: nowrap;
+  text-align: center;
+  line-height: 1.35;
+  /* Room for the month line on every column, so the bars share a baseline
+     whether or not their column has one. */
+  min-height: 27px;
+}
+
+/* The month name under the first day of each month. */
+.chart-label small {
+  display: block;
+  font-size: 9.5px;
+  color: var(--ink-500);
+}
+
+/* ---------- misc ---------- */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 46px 20px;
+  text-align: center;
+  color: var(--ink-500);
+}
+
+.empty-icon {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--brand-50);
+  color: var(--brand-600);
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: #ecebe8;
+  border-radius: var(--radius-sm);
+}
+
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.6), transparent);
+  animation: shimmer 1.3s infinite;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 14px;
+}
+
+.page-btn {
+  min-width: 34px;
+  height: 34px;
+  padding-inline: 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 12.5px;
+}
+
+.page-btn.is-active {
+  background: var(--brand-700);
+  border-color: var(--brand-700);
+  color: #fff;
+  font-weight: 700;
+}
+
+.page-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.toasts {
+  position: fixed;
+  bottom: 20px;
+  inset-inline-start: 20px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 340px;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 15px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-inline-start: 4px solid var(--brand-600);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  animation: toastIn 0.22s ease both;
+}
+
+.toast[data-kind='success'] {
+  border-inline-start-color: var(--success-600);
+}
+
+.toast[data-kind='error'] {
+  border-inline-start-color: var(--danger-600);
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+/* ---------- login ---------- */
+.login-wrap {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(900px 500px at 70% -10%, rgba(160, 127, 58, 0.3), transparent 60%),
+    linear-gradient(160deg, var(--brand-900), #1a1a1a);
+  padding: 20px;
+}
+
+.login-card {
+  width: min(100%, 410px);
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  padding: 30px;
+  box-shadow: var(--shadow-lg);
+}
+
+/* ---------- responsive ---------- */
+.rail-close,
+.rail-backdrop {
+  display: none;
+}
+
+@media (max-width: 1100px) {
+  .cols-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .grid.cols-wide-narrow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .chart {
+    height: 170px;
+  }
+  .chart-col {
+    min-width: 28px;
+  }
+  .shell {
+    grid-template-columns: 1fr;
+  }
+  .rail {
+    position: fixed;
+    inset-inline-start: 0;
+    top: 0;
+    width: min(84vw, 280px);
+    height: 100%;
+    height: 100dvh;
+    z-index: 110;
+    transform: translateX(100%);
+    transition: transform 0.22s ease;
+    overscroll-behavior: contain;
+  }
+  .rail.is-open {
+    transform: translateX(0);
+    box-shadow: var(--shadow-lg);
+  }
+  .rail-logo {
+    position: relative;
+    padding-inline-end: 48px;
+  }
+  .rail-close {
+    display: grid;
+    position: absolute;
+    top: 4px;
+    inset-inline-end: 0;
+    background: rgba(255, 255, 255, 0.08);
+    border-color: transparent;
+    color: #d6d1c6;
+  }
+  .rail-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 105;
+    background: rgba(0, 0, 0, 0.5);
+    animation: fade 0.18s ease both;
+  }
+  .rail-link {
+    padding-block: 12px;
+  }
+  .cols-2,
+  .cols-3 {
+    grid-template-columns: 1fr;
+  }
+  .content {
+    padding: 14px;
+  }
+  .topbar {
+    gap: 10px;
+    padding: 0 14px;
+  }
+  .topbar h1 {
+    min-width: 0;
+    font-size: 15px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .stat {
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px;
+  }
+  .stat-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+  }
+  .stat-value {
+    font-size: 17px;
+  }
+}
+
+@media (min-width: 901px) {
+  .rail-toggle {
+    display: none;
+  }
+}
+
+/* iOS Safari zooms the page into any field under 16px and leaves it there;
+   on a phone every filter, search box and form field did that. */
+@media (max-width: 760px), (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 760px) {
+  .card-pad {
+    padding: 14px;
+  }
+  .card-head {
+    padding: 13px 14px;
+  }
+  .toolbar {
+    gap: 8px;
+  }
+  .search-box {
+    flex: 1 1 100%;
+    max-width: none;
+    min-width: 0;
+  }
+  /* Several pages size their filter selects inline; on a phone they share
+     the row instead. */
+  .toolbar .select {
+    flex: 1 1 150px;
+    width: auto !important;
+    /* A select is as wide as its longest option unless told it may shrink;
+       the audit log's action filter pushed the page 69px sideways. */
+    min-width: 0;
+  }
+
+  /* Tables become a stack of cards. A seven-column table squeezed into
+     375px wrapped every product title one word per line and pushed the
+     row's actions off the edge, so opening an order meant scrolling each
+     table sideways first. Layout copies each column's heading onto its
+     cells as data-label. */
+  .table-wrap {
+    overflow-x: visible;
+  }
+  table.data,
+  table.data tbody,
+  table.data tr,
+  table.data td {
+    display: block;
+    width: 100%;
+  }
+  table.data thead {
+    display: none;
+  }
+  table.data tr {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  table.data tbody tr:last-child {
+    border-bottom: none;
+  }
+  table.data tbody tr:hover {
+    background: none;
+  }
+  /* The label floats to the start side and the cell's own content flows
+     beside it, so a name with the mobile number under it, or a reason
+     with its description, stack the way they do on desktop. (As flex rows
+     they were split into side-by-side columns.) */
+  table.data td {
+    display: flow-root;
+    min-height: 30px;
+    padding: 4px 0;
+    border: none;
+    text-align: end;
+    line-height: 1.9;
+    max-width: none !important;
+    /* Slugs, SKUs and the audit log's JSON have no spaces to break at. */
+    overflow-wrap: anywhere;
+  }
+  table.data td::before {
+    content: attr(data-label);
+    float: right;
+    float: inline-start;
+    margin-inline-end: 14px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ink-400);
+  }
+  /* The first cell names the row - the order, the product, the customer -
+     so it reads as the card's title instead of one more labelled line. */
+  table.data td:first-child {
+    padding-top: 0;
+    text-align: start;
+    font-size: 13.5px;
+  }
+  table.data td:first-child::before,
+  table.data td[data-label='']::before {
+    display: none;
+  }
+  table.data td[data-label='']:not(:first-child) {
+    padding-top: 8px;
+  }
+  .cell-actions {
+    flex-wrap: wrap;
+  }
+  table.data td > .row,
+  table.data td > .spread {
+    justify-content: flex-end;
+  }
+  .cell-actions .icon-btn {
+    width: 38px;
+    height: 38px;
+  }
+
+  /* Dialogs open as a sheet from the bottom edge, the full width of the
+     phone, with the actions within reach of a thumb. */
+  .modal-backdrop {
+    padding: 0;
+    place-items: end center;
+  }
+  .modal,
+  .modal-wide {
+    width: 100%;
+    max-height: 92vh;
+    max-height: 92dvh;
+    border-radius: 20px 20px 0 0;
+    animation: sheet 0.24s ease both;
+  }
+  .modal-head {
+    padding: 12px 16px;
+  }
+  .modal-body {
+    padding: 16px;
+  }
+  .modal-foot {
+    flex-wrap: wrap;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  }
+  .modal-foot .btn {
+    flex: 1 1 auto;
+  }
+
+  .pagination {
+    flex-wrap: wrap;
+  }
+  .toasts {
+    inset-inline: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    max-width: none;
+  }
+}
+
+/* Two stat cards side by side cannot hold a ten-digit Toman figure on the
+   narrowest phones, and a price must not break mid-number. */
+@media (max-width: 420px) {
+  .cols-4 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .stat {
+    flex-direction: row;
+    align-items: center;
+  }
+}
+
+@keyframes sheet {
+  from {
+    transform: translateY(40px);
+    opacity: 0;
+  }
+}
+
+/* Field-level validation messages from the API, one under each input. */
+.field-error {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--danger-600, #c0392b);
+  line-height: 1.6;
+}
+
+.field.has-error .input,
+.field.has-error input,
+.field.has-error select,
+.field.has-error textarea {
+  border-color: var(--danger-600, #c0392b);
+}
+
+/* The zone editor's province picker: 31 checkboxes, two or three a row. */
+.province-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px 12px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+/* The dashboard's "needs attention" strip. */
+.todo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink-700);
+}
+
+.todo-item:hover {
+  border-color: var(--brand-500);
+  color: var(--brand-700);
+}
+
+.todo-count {
+  font-weight: 800;
+  font-size: 18px;
+  color: var(--brand-700);
+}
+
+/* ---------- product video (editor) ---------- */
+.video-section {
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  gap: 10px;
+}
+
+.video-section .row-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.video-section strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.video-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 420px;
+}
+
+.video-preview video {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: var(--radius-sm);
+}
+
+.upload-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 420px;
+}
+
+.upload-progress-bar {
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--brand-100);
+  overflow: hidden;
+}
+
+.upload-progress-bar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--wheat-500), var(--gold-600));
+  transition: width 0.2s ease;
+}

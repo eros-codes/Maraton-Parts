@@ -1,0 +1,25 @@
+[Unit]
+Description=Maraton Parts API (NestJS)
+After=network-online.target mysql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=maratonparts
+Group=maratonparts
+WorkingDirectory=/srv/maraton-parts/backend
+EnvironmentFile=/etc/maraton-parts/backend.env
+ExecStart=/usr/bin/node dist/main
+Restart=on-failure
+RestartSec=3
+# Logs go to the journal: journalctl -u maraton-parts-api -f
+
+# Hardening. The process only ever needs to write uploaded images.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/maraton-parts
+
+[Install]
+WantedBy=multi-user.target

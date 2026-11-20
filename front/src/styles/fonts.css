@@ -1,0 +1,52 @@
+/* Morabba (مربع), the shop's typeface, in the six weights it ships with.
+   Served with the site rather than from a font CDN, like Vazirmatn before
+   it. Morabba has no "—" or "…"; those fall through to Vazirmatn, which
+   stays in the stack behind it for exactly that. Weight 800 is drawn
+   with Black (900), the next heavier one. */
+
+/* Morabba's own word space is very narrow - about a tenth of an em, under
+   half of Vazirmatn's - so words ran together and a price touched its
+   "تومان". word-spacing (set on the body, next to the font) widens every
+   space, no-break spaces included; the font files stay as licensed. */
+@font-face {
+  font-family: 'Morabba';
+  src: url('../assets/fonts/Morabba-Light.woff2') format('woff2');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Morabba';
+  src: url('../assets/fonts/Morabba-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Morabba';
+  src: url('../assets/fonts/Morabba-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Morabba';
+  src: url('../assets/fonts/Morabba-SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Morabba';
+  src: url('../assets/fonts/Morabba-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Morabba';
+  src: url('../assets/fonts/Morabba-Black.woff2') format('woff2');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}

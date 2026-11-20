@@ -1,0 +1,7 @@
+[Unit]
+Description=Reset the Maraton Parts public demo to its seed data
+After=mysql.service
+
+[Service]
+Type=oneshot
+ExecStart=/srv/maraton-parts/deploy/scripts/reset-demo.sh

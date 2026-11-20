@@ -1,0 +1,490 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { DataSource } from 'typeorm';
+import * as bcrypt from 'bcrypt';
+import { UsersService } from './users.service';
+import { User } from './entities/user.entity';
+import { BasketItem } from './entities/basket-item.entity';
+import { RefreshToken } from '../auth/entities/refresh-token.entity';
+import userRoleEnum from './enums/userRoleEnum';
+import { Product } from '../products/entities/product.entity';
+import { ErrorCodes } from '../common/errors/error-codes';
+import { AuditService } from '../audit/audit.service';
+
+const mockUserRepository = () => ({
+  findOneBy: jest.fn(),
+  findOne: jest.fn(),
+  find: jest.fn(),
+  create: jest.fn(),
+  save: jest.fn(),
+  update: jest.fn(),
+  softDelete: jest.fn(),
+  existsBy: jest.fn(),
+  count: jest.fn().mockResolvedValue(2),
+});
+
+const mockBasketItemRepository = () => ({
+  findOne: jest.fn(),
+  findOneOrFail: jest.fn(),
+  find: jest.fn(),
+  create: jest.fn(),
+  save: jest.fn(),
+  remove: jest.fn(),
+});
+
+const mockRefreshTokenRepository = () => ({
+  delete: jest.fn(),
+});
+
+describe('UsersService', () => {
+  let service: UsersService;
+  let userRepository: ReturnType<typeof mockUserRepository>;
+  let refreshTokenRepository: ReturnType<typeof mockRefreshTokenRepository>;
+  let auditService: { record: jest.Mock };
+  let manager: Record<string, jest.Mock>;
+  let basketLines: Record<string, jest.Mock>;
+  let basketQb: Record<string, jest.Mock>;
+
+  beforeEach(async () => {
+    basketQb = {};
+    for (const method of ['select', 'where'])
+      basketQb[method] = jest.fn(() => basketQb);
+    basketQb.getOne = jest.fn().mockResolvedValue(null);
+    basketQb.getMany = jest.fn().mockResolvedValue([]);
+    basketQb.getCount = jest.fn().mockResolvedValue(0);
+    basketLines = {
+      createQueryBuilder: jest.fn(() => basketQb),
+      update: jest.fn(),
+      insert: jest.fn().mockResolvedValue({ identifiers: [{ id: 11 }] }),
+      delete: jest.fn(),
+    };
+    manager = {
+      findOne: jest.fn(async (entity) =>
+        entity === Product
+          ? { id: 3, title: 'Test', stock: 5, is_published: true }
+          : { id: 7 },
+      ),
+      getRepository: jest.fn(() => basketLines),
+    };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        { provide: AuditService, useValue: { record: jest.fn() } },
+        UsersService,
+        { provide: getRepositoryToken(User), useFactory: mockUserRepository },
+        {
+          provide: getRepositoryToken(BasketItem),
+          useFactory: mockBasketItemRepository,
+        },
+        {
+          provide: getRepositoryToken(RefreshToken),
+          useFactory: mockRefreshTokenRepository,
+        },
+        {
+          provide: DataSource,
+          useValue: { transaction: jest.fn((cb: any) => cb(manager)) },
+        },
+      ],
+    }).compile();
+
+    service = module.get(UsersService);
+    userRepository = module.get(getRepositoryToken(User));
+    refreshTokenRepository = module.get(getRepositoryToken(RefreshToken));
+    auditService = module.get(AuditService);
+  });
+
+  afterEach(() => jest.clearAllMocks());
+
+  describe('create', () => {
+    it('hashes the password before saving - never stores it raw', async () => {
+      userRepository.findOneBy
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 1, mobile: '09120000000' });
+      userRepository.create.mockImplementation((data) => data);
+      userRepository.save.mockResolvedValue({ id: 1 });
+
+      await service.create({
+        mobile: '09120000000',
+        password: 'Password123',
+        display_name: 'Test User',
+        role: userRoleEnum.NormalUser,
+      });
+
+      const savedArg = userRepository.create.mock.calls[0][0];
+      expect(savedArg.password).not.toBe('Password123');
+      expect(await bcrypt.compare('Password123', savedArg.password)).toBe(true);
+    });
+
+    it('records who created the account, and with what role', async () => {
+      userRepository.findOneBy
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 5, mobile: '09120000005' });
+      userRepository.create.mockImplementation((data) => data);
+      userRepository.save.mockResolvedValue({
+        id: 5,
+        role: userRoleEnum.AdminUser,
+      });
+
+      await service.create(
+        {
+          mobile: '09120000005',
+          password: 'Password123',
+          display_name: 'New Admin',
+          role: userRoleEnum.AdminUser,
+        },
+        { userId: 1, label: '09120000001' },
+      );
+
+      expect(auditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'user.created',
+          entityId: 5,
+          actor: { userId: 1, label: '09120000001' },
+          changes: { role: userRoleEnum.AdminUser },
+        }),
+      );
+    });
+
+    it('rejects a mobile number that is already registered', async () => {
+      userRepository.findOneBy.mockResolvedValue({ id: 1 });
+
+      await expect(
+        service.create({
+          mobile: '09120000000',
+          password: 'Password123',
+          display_name: 'Test User',
+          role: userRoleEnum.NormalUser,
+        }),
+      ).rejects.toMatchObject({
+        status: 409,
+        code: 'MOBILE_ALREADY_REGISTERED',
+      });
+    });
+
+    it('never returns the password hash, even though save() would include it', async () => {
+      userRepository.findOneBy
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          id: 1,
+          mobile: '09120000000',
+          display_name: 'Test User',
+        });
+      userRepository.create.mockImplementation((data) => data);
+      userRepository.save.mockResolvedValue({ id: 1, password: 'some-hash' });
+
+      const result = await service.create({
+        mobile: '09120000000',
+        password: 'Password123',
+        display_name: 'Test User',
+        role: userRoleEnum.NormalUser,
+      });
+
+      expect(result).not.toHaveProperty('password');
+      expect(userRepository.findOneBy).toHaveBeenCalledWith({ id: 1 });
+    });
+  });
+
+  describe('update', () => {
+    it('updates display_name without ever touching role', async () => {
+      userRepository.update.mockResolvedValue({ affected: 1 });
+      userRepository.findOneBy.mockResolvedValue({
+        id: 1,
+        display_name: 'New Name',
+      });
+
+      await service.update(1, { display_name: 'New Name' });
+
+      const updateArg = userRepository.update.mock.calls[0][1];
+      expect(updateArg).not.toHaveProperty('role');
+      expect(updateArg.display_name).toBe('New Name');
+    });
+
+    it('hashes a new password if one is provided, and revokes existing sessions', async () => {
+      userRepository.update.mockResolvedValue({ affected: 1 });
+      userRepository.findOneBy.mockResolvedValue({ id: 1 });
+
+      await service.update(1, { password: 'NewPassword123' });
+
+      const updateArg = userRepository.update.mock.calls[0][1];
+      expect(updateArg.password).not.toBe('NewPassword123');
+      expect(await bcrypt.compare('NewPassword123', updateArg.password)).toBe(
+        true,
+      );
+      expect(refreshTokenRepository.delete).toHaveBeenCalledWith({
+        user: { id: 1 },
+      });
+    });
+
+    it('does NOT revoke sessions when only display_name changes', async () => {
+      userRepository.update.mockResolvedValue({ affected: 1 });
+      userRepository.findOneBy.mockResolvedValue({ id: 1 });
+
+      await service.update(1, { display_name: 'New Name' });
+
+      expect(refreshTokenRepository.delete).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException for a non-existent user', async () => {
+      userRepository.update.mockResolvedValue({ affected: 0 });
+
+      await expect(service.update(999, { display_name: 'X' })).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('updateRole', () => {
+    it('will not let an admin change their own role', async () => {
+      await expect(
+        service.updateRole(5, userRoleEnum.NormalUser, {
+          userId: 5,
+          label: null,
+        }),
+      ).rejects.toMatchObject({ code: ErrorCodes.CANNOT_CHANGE_OWN_ROLE });
+      expect(userRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('keeps the last admin an admin', async () => {
+      userRepository.findOne.mockResolvedValue({ id: 6, role: 'admin' });
+      userRepository.count.mockResolvedValue(1);
+
+      await expect(
+        service.updateRole(6, userRoleEnum.NormalUser, {
+          userId: 5,
+          label: null,
+        }),
+      ).rejects.toMatchObject({ code: ErrorCodes.LAST_ADMIN });
+      expect(userRepository.update).not.toHaveBeenCalled();
+    });
+
+    it("revokes the user's sessions so a demotion takes effect", async () => {
+      userRepository.update.mockResolvedValue({ affected: 1 });
+      userRepository.findOneBy.mockResolvedValue({ id: 5, role: 'user' });
+
+      await service.updateRole(5, userRoleEnum.NormalUser);
+
+      expect(refreshTokenRepository.delete).toHaveBeenCalledWith({
+        user: { id: 5 },
+      });
+    });
+  });
+
+  describe('remove', () => {
+    it('anonymizes personal data then soft-deletes, instead of hard-deleting', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        id: 5,
+        mobile: '09121234567',
+      });
+      userRepository.update.mockResolvedValue({ affected: 1 });
+      userRepository.softDelete.mockResolvedValue({ affected: 1 });
+
+      await service.remove(5);
+
+      const updateArg = userRepository.update.mock.calls[0][1];
+      expect(updateArg.mobile).toBe('deleted_5');
+      expect(updateArg.display_name).toBe('Deleted User');
+      expect(updateArg.password).toBeDefined();
+      expect(userRepository.softDelete).toHaveBeenCalledWith(5);
+    });
+
+    it('deletes refresh tokens explicitly, since soft-delete never triggers CASCADE', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        id: 5,
+        mobile: '09121234567',
+      });
+      userRepository.update.mockResolvedValue({ affected: 1 });
+      userRepository.softDelete.mockResolvedValue({ affected: 1 });
+
+      await service.remove(5);
+
+      expect(refreshTokenRepository.delete).toHaveBeenCalledWith({
+        user: { id: 5 },
+      });
+    });
+
+    it('throws NotFoundException for a non-existent user', async () => {
+      userRepository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.remove(999)).rejects.toThrow(NotFoundException);
+    });
+  });
+  describe('basket', () => {
+    it('adds a new line with quantity 1 under the product and user locks', async () => {
+      await service.addProductToBasket(7, 3);
+
+      expect(manager.findOne).toHaveBeenCalledWith(
+        Product,
+        expect.objectContaining({ lock: { mode: 'pessimistic_read' } }),
+      );
+      expect(manager.findOne).toHaveBeenCalledWith(
+        User,
+        expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
+      );
+      expect(basketLines.insert).toHaveBeenCalledWith({
+        user: { id: 7 },
+        product: { id: 3 },
+        quantity: 1,
+      });
+    });
+
+    it('increments an existing line in place instead of loading the whole basket', async () => {
+      basketQb.getOne.mockResolvedValue({ id: 11, quantity: 2 });
+
+      await service.addProductToBasket(7, 3);
+
+      expect(basketLines.update).toHaveBeenCalledWith(
+        { id: 11 },
+        { quantity: 3 },
+      );
+      expect(basketLines.insert).not.toHaveBeenCalled();
+      expect(userRepository.findOne).not.toHaveBeenCalled();
+    });
+
+    it('never reserves stock, but refuses more than is in stock', async () => {
+      basketQb.getOne.mockResolvedValue({ id: 11, quantity: 5 });
+
+      await expect(service.addProductToBasket(7, 3)).rejects.toMatchObject({
+        status: 400,
+        code: ErrorCodes.INSUFFICIENT_STOCK,
+        details: { available: 5, requested: 6 },
+      });
+      expect(basketLines.update).not.toHaveBeenCalled();
+    });
+
+    // One request for several units instead of one request per unit.
+    it('adds several units at once', async () => {
+      basketQb.getOne.mockResolvedValue({ id: 11, quantity: 1 });
+
+      await service.addProductToBasket(7, 3, 3);
+
+      expect(basketLines.update).toHaveBeenCalledWith(
+        { id: 11 },
+        { quantity: 4 },
+      );
+    });
+
+    it('refuses the whole batch rather than adding part of it', async () => {
+      basketQb.getOne.mockResolvedValue({ id: 11, quantity: 3 });
+
+      await expect(service.addProductToBasket(7, 3, 3)).rejects.toMatchObject({
+        code: ErrorCodes.INSUFFICIENT_STOCK,
+      });
+      expect(basketLines.update).not.toHaveBeenCalled();
+    });
+
+    it('removes a whole line in one request', async () => {
+      basketQb.getOne.mockResolvedValueOnce({ id: 11, quantity: 4 });
+
+      await service.removeProductFromBasket(7, 3, 4);
+
+      expect(basketLines.delete).toHaveBeenCalledWith({ id: 11 });
+      expect(basketLines.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses a deleted product', async () => {
+      manager.findOne.mockImplementation(async (entity) =>
+        entity === Product ? null : { id: 7 },
+      );
+
+      await expect(service.addProductToBasket(7, 3)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(basketLines.insert).not.toHaveBeenCalled();
+    });
+
+    it('refuses a product the shop has unpublished', async () => {
+      manager.findOne.mockImplementation(async (entity) =>
+        entity === Product
+          ? { id: 3, title: 'Draft', stock: 5, is_published: false }
+          : { id: 7 },
+      );
+
+      await expect(service.addProductToBasket(7, 3)).rejects.toMatchObject({
+        code: ErrorCodes.PRODUCT_NOT_FOR_SALE,
+      });
+      expect(basketLines.insert).not.toHaveBeenCalled();
+    });
+
+    it('caps the number of different products in a basket', async () => {
+      basketQb.getCount.mockResolvedValue(100);
+
+      await expect(service.addProductToBasket(7, 3)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(basketLines.insert).not.toHaveBeenCalled();
+    });
+
+    it('decrements, then deletes the last unit', async () => {
+      basketQb.getOne.mockResolvedValueOnce({ id: 11, quantity: 2 });
+      await service.removeProductFromBasket(7, 3);
+      expect(basketLines.update).toHaveBeenCalledWith(
+        { id: 11 },
+        { quantity: 1 },
+      );
+
+      basketQb.getOne.mockResolvedValueOnce({ id: 11, quantity: 1 });
+      await service.removeProductFromBasket(7, 3);
+      expect(basketLines.delete).toHaveBeenCalledWith({ id: 11 });
+    });
+
+    it('is a 404 when the product is not in the basket', async () => {
+      await expect(service.removeProductFromBasket(7, 3)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    // The shop unpublished the product after it went into the basket. The
+    // line still has to come out - checkout refuses it.
+    it('removes a line whose product is no longer for sale', async () => {
+      basketQb.getOne.mockResolvedValueOnce({ id: 11, quantity: 1 });
+
+      await service.removeProductFromBasket(7, 3);
+
+      expect(basketLines.delete).toHaveBeenCalledWith({ id: 11 });
+      expect(manager.findOne).not.toHaveBeenCalledWith(
+        Product,
+        expect.anything(),
+      );
+    });
+
+    it('finds the line by user and product', async () => {
+      basketQb.getOne.mockResolvedValueOnce({ id: 11, quantity: 1 });
+
+      await service.removeProductFromBasket(7, 3);
+
+      expect(basketQb.where).toHaveBeenCalledWith(
+        'item.userId = :userId AND item.productId = :productId',
+        { userId: 7, productId: 3 },
+      );
+    });
+
+    // A guest basket from an older storefront could hold one product on two
+    // lines (one per option); it arrives as one line with both quantities.
+    it('folds repeated products in a guest basket into one line', async () => {
+      const result = await service.mergeBasket(7, [
+        { productId: 3, quantity: 1 },
+        { productId: 3, quantity: 2 },
+      ]);
+
+      expect(result).toEqual({ merged: 1, skipped: 0 });
+      expect(basketLines.insert).toHaveBeenCalledTimes(1);
+      expect(basketLines.insert).toHaveBeenCalledWith({
+        user: { id: 7 },
+        product: { id: 3 },
+        quantity: 3,
+      });
+    });
+
+    it('trims a merged line to what is in stock', async () => {
+      basketQb.getOne.mockResolvedValueOnce({ id: 11, quantity: 4 });
+
+      await service.mergeBasket(7, [{ productId: 3, quantity: 4 }]);
+
+      expect(basketLines.update).toHaveBeenCalledWith(
+        { id: 11 },
+        { quantity: 5 },
+      );
+    });
+  });
+});

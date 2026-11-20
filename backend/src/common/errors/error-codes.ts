@@ -1,0 +1,112 @@
+// Machine-readable names for the failures a storefront has to react to.
+//
+// The `message` beside them is English and meant for developers and
+// logs; a Persian storefront translates the CODE. Matching on message
+// text would break the moment a sentence is reworded, which is exactly
+// the kind of breakage nobody notices until a customer sees an English
+// error.
+export const ErrorCodes = {
+  // Generic, derived from the HTTP status when nothing more specific
+  // was thrown.
+  VALIDATION_FAILED: 'VALIDATION_FAILED',
+  BAD_REQUEST: 'BAD_REQUEST',
+  UNAUTHORIZED: 'UNAUTHORIZED',
+  FORBIDDEN: 'FORBIDDEN',
+  NOT_FOUND: 'NOT_FOUND',
+  CONFLICT: 'CONFLICT',
+  TOO_MANY_REQUESTS: 'TOO_MANY_REQUESTS',
+  INTERNAL_ERROR: 'INTERNAL_ERROR',
+
+  // Catalogue and stock
+  INSUFFICIENT_STOCK: 'INSUFFICIENT_STOCK',
+  STOCK_CHANGED: 'STOCK_CHANGED',
+  DEMO_ACCOUNT_LOCKED: 'DEMO_ACCOUNT_LOCKED',
+  CANNOT_CHANGE_OWN_ROLE: 'CANNOT_CHANGE_OWN_ROLE',
+  // Signing up, or staff creating an account, for a number that has one.
+  MOBILE_ALREADY_REGISTERED: 'MOBILE_ALREADY_REGISTERED',
+  LAST_ADMIN: 'LAST_ADMIN',
+  OUT_OF_STOCK: 'OUT_OF_STOCK',
+  // A draft or a deleted product, asked for by id.
+  PRODUCT_NOT_FOR_SALE: 'PRODUCT_NOT_FOR_SALE',
+  // An upload that passed the type check but could not be decoded - a
+  // damaged file, or one with absurd dimensions.
+  IMAGE_UNREADABLE: 'IMAGE_UNREADABLE',
+  // Product videos: not an MP4/MOV, an encoding browsers cannot all play
+  // (HEVC), or longer than a product video may be.
+  VIDEO_INVALID: 'VIDEO_INVALID',
+  VIDEO_CODEC_UNSUPPORTED: 'VIDEO_CODEC_UNSUPPORTED',
+  VIDEO_TOO_LONG: 'VIDEO_TOO_LONG',
+
+  // Catalogue upkeep in the panel. As bare 409s these all read "this
+  // already exists" there, which was the wrong sentence for every one.
+  ATTRIBUTE_IN_USE: 'ATTRIBUTE_IN_USE',
+  CATEGORY_HAS_CHILDREN: 'CATEGORY_HAS_CHILDREN',
+  CATEGORY_LOOP: 'CATEGORY_LOOP',
+  REQUIRED_ATTRIBUTE_MISSING: 'REQUIRED_ATTRIBUTE_MISSING',
+  INVALID_ATTRIBUTE_VALUE: 'INVALID_ATTRIBUTE_VALUE',
+
+  // Checkout
+  SHIPPING_METHOD_REQUIRED: 'SHIPPING_METHOD_REQUIRED',
+  SHIPPING_METHOD_UNAVAILABLE: 'SHIPPING_METHOD_UNAVAILABLE',
+  PAYMENT_METHOD_REQUIRED: 'PAYMENT_METHOD_REQUIRED',
+  COD_NOT_SUPPORTED: 'COD_NOT_SUPPORTED',
+  COD_LIMIT_EXCEEDED: 'COD_LIMIT_EXCEEDED',
+  IDEMPOTENCY_KEY_REQUIRED: 'IDEMPOTENCY_KEY_REQUIRED',
+  ORDER_NOT_EDITABLE: 'ORDER_NOT_EDITABLE',
+  ORDER_NOT_CANCELLABLE: 'ORDER_NOT_CANCELLABLE',
+  INVALID_STATUS_TRANSITION: 'INVALID_STATUS_TRANSITION',
+
+  // Money
+  INSUFFICIENT_WALLET_BALANCE: 'INSUFFICIENT_WALLET_BALANCE',
+  WALLET_INACTIVE: 'WALLET_INACTIVE',
+  PAYMENT_GATEWAY_UNAVAILABLE: 'PAYMENT_GATEWAY_UNAVAILABLE',
+  AMOUNT_TOO_LARGE: 'AMOUNT_TOO_LARGE',
+  FILE_TOO_LARGE: 'FILE_TOO_LARGE',
+
+  // Discounts
+  DISCOUNT_NOT_FOUND: 'DISCOUNT_NOT_FOUND',
+  DISCOUNT_EXHAUSTED: 'DISCOUNT_EXHAUSTED',
+  DISCOUNT_NOT_STARTED: 'DISCOUNT_NOT_STARTED',
+  DISCOUNT_EXPIRED: 'DISCOUNT_EXPIRED',
+  DISCOUNT_MIN_ORDER_NOT_MET: 'DISCOUNT_MIN_ORDER_NOT_MET',
+  DISCOUNT_USER_LIMIT_REACHED: 'DISCOUNT_USER_LIMIT_REACHED',
+  DISCOUNT_NOT_APPLICABLE: 'DISCOUNT_NOT_APPLICABLE',
+
+  // Accounts
+  INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
+  OTP_INCORRECT: 'OTP_INCORRECT',
+  OTP_EXPIRED: 'OTP_EXPIRED',
+  OTP_ATTEMPTS_EXCEEDED: 'OTP_ATTEMPTS_EXCEEDED',
+  OTP_NOT_FOUND: 'OTP_NOT_FOUND',
+  OTP_COOLDOWN: 'OTP_COOLDOWN',
+  OTP_SEND_LIMIT: 'OTP_SEND_LIMIT',
+  CURRENT_PASSWORD_INCORRECT: 'CURRENT_PASSWORD_INCORRECT',
+
+  // Returns
+  RETURN_WINDOW_CLOSED: 'RETURN_WINDOW_CLOSED',
+  RETURN_NOT_ALLOWED: 'RETURN_NOT_ALLOWED',
+  RETURN_QUANTITY_EXCEEDED: 'RETURN_QUANTITY_EXCEEDED',
+  REFUND_EXCEEDS_PAID: 'REFUND_EXCEEDS_PAID',
+
+  // Support tickets. Both limits answer 429, but "wait a few seconds" and
+  // "close one of your open tickets first" are different instructions.
+  TICKET_CLOSED: 'TICKET_CLOSED',
+  TICKET_COOLDOWN: 'TICKET_COOLDOWN',
+  TICKET_LIMIT_REACHED: 'TICKET_LIMIT_REACHED',
+} as const;
+
+export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
+
+// What the filter falls back to when a plain Nest exception was thrown.
+export const STATUS_FALLBACK_CODES: Record<number, ErrorCode> = {
+  400: ErrorCodes.BAD_REQUEST,
+  401: ErrorCodes.UNAUTHORIZED,
+  403: ErrorCodes.FORBIDDEN,
+  404: ErrorCodes.NOT_FOUND,
+  409: ErrorCodes.CONFLICT,
+  // Multer rejects an oversized upload with a bare 413, so without this the
+  // admin was shown the generic "internal error" wording for a file that is
+  // simply too big - nothing to act on.
+  413: ErrorCodes.FILE_TOO_LARGE,
+  429: ErrorCodes.TOO_MANY_REQUESTS,
+};
