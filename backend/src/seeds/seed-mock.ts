@@ -585,8 +585,10 @@ async function seed() {
       );
       await backdate(WalletTransaction, entry.id, at, ['createdAt']);
     };
-    for (const customer of customers) {
-      if (!customer.garage && !chance(0.45)) continue;
+    for (const [index, customer] of customers.entries()) {
+      // The demo logins always have one: they are how a visitor tries
+      // paying from a wallet.
+      if (index >= 3 && !customer.garage && !chance(0.45)) continue;
       const row = await wallets.save(
         wallets.create({ user: customer.user, amount: 0, is_active: true }),
       );
@@ -1220,6 +1222,21 @@ async function seed() {
             (shelf.get(line.product.id) ?? 0) + quantity,
           );
         }
+      }
+    }
+
+    // The demo logins end with enough in the wallet to try a checkout of
+    // anything in the shop.
+    for (const customer of customers.slice(0, 3)) {
+      const wallet = customer.wallet;
+      if (wallet && wallet.balance < 50_000_000) {
+        await record(
+          customer,
+          Math.ceil((60_000_000 - wallet.balance) / 1_000_000) * 1_000_000,
+          WalletTransactionTypeEnum.AdminCharge,
+          'شارژ حساب دمو توسط پشتیبانی',
+          new Date(NOW - DAY),
+        );
       }
     }
 

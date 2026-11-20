@@ -32,7 +32,11 @@ test('a product page shows its price and names itself in the tab', async ({ page
   const { product } = await sellableProduct();
   await page.goto(`/product/${product.slug}`);
   await expect(page.locator('.buy-cta')).toBeVisible();
-  await expect(page).toHaveTitle(new RegExp(`^${product.title}`));
+  // Titles are part names with brackets and plus signs in them
+  // ("... (94324 + VKM74200)"): matched as text, not as a pattern.
+  await expect(page).toHaveTitle(
+    new RegExp(`^${product.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+  );
   expect(digitsOf(await page.locator('.buy-price').innerText()).length).toBeGreaterThan(0);
 });
 
