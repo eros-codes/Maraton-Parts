@@ -78,8 +78,9 @@ async function bootstrap() {
   app.useGlobalPipes(createValidationPipe());
 
   const isProduction = process.env.NODE_ENV === 'production';
+  // Unset or empty: on outside production, off in it.
   const swaggerEnabled =
-    (process.env.SWAGGER_ENABLED ?? (isProduction ? 'false' : 'true')) ===
+    (process.env.SWAGGER_ENABLED || (isProduction ? 'false' : 'true')) ===
     'true';
   if (swaggerEnabled) {
     const docsUser = process.env.SWAGGER_USER;

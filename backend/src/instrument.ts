@@ -3,7 +3,9 @@ import * as Sentry from '@sentry/nestjs';
 
 if (process.env.SENTRY_DSN) {
   const isProduction = process.env.NODE_ENV === 'production';
-  const configuredRate = Number(process.env.SENTRY_TRACES_SAMPLE_RATE);
+  // Number('') is 0, which would silently turn tracing off: empty means unset.
+  const rawRate = process.env.SENTRY_TRACES_SAMPLE_RATE?.trim();
+  const configuredRate = rawRate ? Number(rawRate) : NaN;
   const tracesSampleRate = Number.isFinite(configuredRate)
     ? configuredRate
     : isProduction

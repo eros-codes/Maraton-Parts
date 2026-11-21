@@ -182,17 +182,27 @@ import { ProductVideo1791300000000 } from './migrations/1791300000000-ProductVid
           .valid('memory', 'database')
           .default('memory'),
         THROTTLE_LIMIT_PER_MINUTE: Joi.number().integer().min(1).default(600),
+        // An empty value - as .env.example ships these two - means "use the
+        // default", like every other optional setting here.
         SWAGGER_ENABLED: Joi.when('NODE_ENV', {
           is: 'production',
-          then: Joi.boolean().truthy('true').falsy('false').default(false),
-          otherwise: Joi.boolean().truthy('true').falsy('false').default(true),
+          then: Joi.boolean()
+            .truthy('true')
+            .falsy('false')
+            .empty('')
+            .default(false),
+          otherwise: Joi.boolean()
+            .truthy('true')
+            .falsy('false')
+            .empty('')
+            .default(true),
         }),
         SWAGGER_USER: Joi.string().allow('').default(''),
         SWAGGER_PASSWORD: Joi.string().allow('').default(''),
         SENTRY_TRACES_SAMPLE_RATE: Joi.when('NODE_ENV', {
           is: 'production',
-          then: Joi.number().min(0).max(1).default(0.1),
-          otherwise: Joi.number().min(0).max(1).default(1),
+          then: Joi.number().min(0).max(1).empty('').default(0.1),
+          otherwise: Joi.number().min(0).max(1).empty('').default(1),
         }),
       }),
     }),
