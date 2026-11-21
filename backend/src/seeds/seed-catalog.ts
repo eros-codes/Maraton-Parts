@@ -35,13 +35,19 @@ import {
 // Maraton Parts' catalogue: the bearing and timing-belt categories, a
 // "by car" tree, the brands, and 70 products with their specs and photos.
 //
-// It starts from an empty shop: every table is emptied first (the admin
-// accounts are kept, so the panel can still be signed into) and so is the
-// folder of product pictures. Orders, reviews and the rest come from
-// seed-mock, which runs after this one.
+// Two ways to run it:
 //
-//   npm run seed:catalog            the products only
-//   npm run seed:demo               the products, then mock orders etc.
+//   npm run seed:catalog
+//     The real shop's first catalogue. Only into a shop with no products,
+//     categories or orders yet, and it deletes nothing - so it is allowed on
+//     the production server, once, right after the first migration.
+//
+//   npm run seed:catalog -- --fresh
+//     Starts over: every table is emptied first (the admin accounts are
+//     kept, so the panel can still be signed into) and so is the folder of
+//     product pictures. Local and demo databases only.
+//
+//   npm run seed:demo    = --fresh, then seed-mock's orders, reviews and so on.
 const logger = new Logger('SeedCatalog');
 
 const IMAGES_DIR = join(__dirname, 'catalog', 'images');
@@ -93,7 +99,8 @@ async function wipe(dataSource: DataSource) {
 }
 
 async function seed() {
-  refuseInProduction('seed:catalog');
+  const fresh = process.argv.includes('--fresh');
+  if (fresh) refuseInProduction('seed:catalog --fresh');
 
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ['error', 'warn'],
@@ -103,7 +110,31 @@ async function seed() {
   const processor = app.get(ProductImageProcessor);
 
   try {
-    await wipe(dataSource);
+    if (fresh) {
+      await wipe(dataSource);
+    } else {
+      // Into an empty shop only: anything already there was put there by
+      // someone, and a second catalogue on top of it would be a mess.
+      const [existing] = await dataSource.query(
+        'SELECT (SELECT COUNT(*) FROM `products`) AS products, ' +
+          '(SELECT COUNT(*) FROM `categories`) AS categories, ' +
+          '(SELECT COUNT(*) FROM `order`) AS orders',
+      );
+      const found = [
+        ['products', existing.products],
+        ['categories', existing.categories],
+        ['orders', existing.orders],
+      ].filter(([, count]) => Number(count) > 0);
+      if (found.length) {
+        console.error(
+          `The shop already has ${found.map(([name, count]) => `${count} ${name}`).join(', ')}; ` +
+            'seed:catalog only fills an empty one.\n' +
+            'On a local or demo database, start over with: npm run seed:catalog -- --fresh',
+        );
+        process.exitCode = 1;
+        return;
+      }
+    }
 
     // ---------- categories ----------
     const categories = dataSource.getRepository(Category);
@@ -314,87 +345,91 @@ async function seed() {
     }
 
     // ---------- shipping ----------
-    // Part of the shop's setup, emptied with everything else above.
+    // Part of the shop's setup: emptied with everything else by --fresh,
+    // and left alone when the shop already has its own.
     const zones = dataSource.getRepository(ShippingZone);
     const methods = dataSource.getRepository(ShippingMethod);
     const rates = dataSource.getRepository(ShippingRate);
 
-    const tabriz = await zones.save(
-      zones.create({
-        title: 'آذربایجان شرقی',
-        provinces: ['آذربایجان شرقی'],
-        is_default: false,
-      }),
-    );
-    const bigCities = await zones.save(
-      zones.create({
-        title: 'تهران و شهرهای بزرگ',
-        provinces: ['تهران', 'البرز', 'اصفهان', 'خراسان رضوی', 'فارس'],
-        is_default: false,
-      }),
-    );
-    const rest = await zones.save(
-      zones.create({ title: 'سایر شهرها', provinces: [], is_default: true }),
-    );
+    const hasShipping = (await methods.count()) > 0;
+    if (!hasShipping) {
+      const tabriz = await zones.save(
+        zones.create({
+          title: 'آذربایجان شرقی',
+          provinces: ['آذربایجان شرقی'],
+          is_default: false,
+        }),
+      );
+      const bigCities = await zones.save(
+        zones.create({
+          title: 'تهران و شهرهای بزرگ',
+          provinces: ['تهران', 'البرز', 'اصفهان', 'خراسان رضوی', 'فارس'],
+          is_default: false,
+        }),
+      );
+      const rest = await zones.save(
+        zones.create({ title: 'سایر شهرها', provinces: [], is_default: true }),
+      );
 
-    const post = await methods.save(
-      methods.create({
-        code: 'post-pishtaz',
-        title: 'پست پیشتاز',
-        estimated_days_min: 2,
-        estimated_days_max: 4,
-        supports_cash_on_delivery: true,
-        sort_order: 1,
-      }),
-    );
-    const tipax = await methods.save(
-      methods.create({
-        code: 'tipax',
-        title: 'تیپاکس',
-        estimated_days_min: 1,
-        estimated_days_max: 3,
-        supports_cash_on_delivery: true,
-        sort_order: 2,
-      }),
-    );
-    const courier = await methods.save(
-      methods.create({
-        code: 'peyk',
-        title: 'پیک موتوری (تبریز)',
-        estimated_days_min: 1,
-        estimated_days_max: 1,
-        supports_cash_on_delivery: true,
-        sort_order: 0,
-      }),
-    );
+      const post = await methods.save(
+        methods.create({
+          code: 'post-pishtaz',
+          title: 'پست پیشتاز',
+          estimated_days_min: 2,
+          estimated_days_max: 4,
+          supports_cash_on_delivery: true,
+          sort_order: 1,
+        }),
+      );
+      const tipax = await methods.save(
+        methods.create({
+          code: 'tipax',
+          title: 'تیپاکس',
+          estimated_days_min: 1,
+          estimated_days_max: 3,
+          supports_cash_on_delivery: true,
+          sort_order: 2,
+        }),
+      );
+      const courier = await methods.save(
+        methods.create({
+          code: 'peyk',
+          title: 'پیک موتوری (تبریز)',
+          estimated_days_min: 1,
+          estimated_days_max: 1,
+          supports_cash_on_delivery: true,
+          sort_order: 0,
+        }),
+      );
 
-    const rate = (
-      method: ShippingMethod,
-      zone: ShippingZone,
-      values: Partial<ShippingRate>,
-    ) => rates.save(rates.create({ method, zone, ...values }));
-    await rate(post, tabriz, {
-      base_cost: 45_000,
-      per_kg_cost: 12_000,
-      free_shipping_threshold: 5_000_000,
-      cash_on_delivery_fee: 20_000,
-    });
-    await rate(post, bigCities, {
-      base_cost: 60_000,
-      per_kg_cost: 18_000,
-      free_shipping_threshold: 8_000_000,
-      cash_on_delivery_fee: 25_000,
-    });
-    await rate(post, rest, {
-      base_cost: 75_000,
-      per_kg_cost: 22_000,
-      free_shipping_threshold: 10_000_000,
-      cash_on_delivery_fee: 30_000,
-    });
-    await rate(tipax, tabriz, { base_cost: 70_000, per_kg_cost: 15_000 });
-    await rate(tipax, bigCities, { base_cost: 95_000, per_kg_cost: 20_000 });
-    await rate(tipax, rest, { base_cost: 120_000, per_kg_cost: 25_000 });
-    await rate(courier, tabriz, { base_cost: 90_000 });
+      const rate = (
+        method: ShippingMethod,
+        zone: ShippingZone,
+        values: Partial<ShippingRate>,
+      ) => rates.save(rates.create({ method, zone, ...values }));
+      await rate(post, tabriz, {
+        base_cost: 45_000,
+        per_kg_cost: 12_000,
+        free_shipping_threshold: 5_000_000,
+        cash_on_delivery_fee: 20_000,
+      });
+      await rate(post, bigCities, {
+        base_cost: 60_000,
+        per_kg_cost: 18_000,
+        free_shipping_threshold: 8_000_000,
+        cash_on_delivery_fee: 25_000,
+      });
+      await rate(post, rest, {
+        base_cost: 75_000,
+        per_kg_cost: 22_000,
+        free_shipping_threshold: 10_000_000,
+        cash_on_delivery_fee: 30_000,
+      });
+      await rate(tipax, tabriz, { base_cost: 70_000, per_kg_cost: 15_000 });
+      await rate(tipax, bigCities, { base_cost: 95_000, per_kg_cost: 20_000 });
+      await rate(tipax, rest, { base_cost: 120_000, per_kg_cost: 25_000 });
+      await rate(courier, tabriz, { base_cost: 90_000 });
+    }
 
     const admins = await dataSource.query(
       'SELECT COUNT(*) AS n FROM `users` WHERE `role` = ?',
@@ -405,7 +440,11 @@ async function seed() {
     console.log(
       `  ${CATALOGUE.length} products, ${stored.size} photos, ${categoryBySlug.size} categories, ${BRANDS.length} brands`,
     );
-    console.log('  3 shipping methods across 3 zones');
+    console.log(
+      hasShipping
+        ? '  shipping left as it was'
+        : '  3 shipping methods across 3 zones',
+    );
     if (Number(admins[0].n) === 0) {
       console.log(
         '  No admin account: run `npm run seed:admin`, or `npm run seed:mock` for the demo accounts.',

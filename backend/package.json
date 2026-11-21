@@ -26,7 +26,7 @@
     "seed:admin": "ts-node -P tsconfig.json -r tsconfig-paths/register src/seeds/seed-admin.ts",
     "seed:catalog": "ts-node -P tsconfig.json -r tsconfig-paths/register src/seeds/seed-catalog.ts",
     "seed:mock": "ts-node -P tsconfig.json -r tsconfig-paths/register src/seeds/seed-mock.ts",
-    "seed:demo": "npm run seed:catalog && npm run seed:mock",
+    "seed:demo": "npm run seed:catalog -- --fresh && npm run seed:mock",
     "images:optimize": "ts-node -P tsconfig.json -r tsconfig-paths/register src/maintenance/optimize-images.ts"
   },
   "dependencies": {

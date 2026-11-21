@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import ArticlesShelf from '../components/ArticlesShelf';
 import {
   ArrowLeft,
   ChevronLeft,
@@ -330,6 +331,8 @@ export default function Home() {
           </div>
         </section>
       ) : null}
+
+      <ArticlesShelf />
     </div>
   );
 }

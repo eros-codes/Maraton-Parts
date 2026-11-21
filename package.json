@@ -1,0 +1,14 @@
+{
+  "name": "maraton-parts",
+  "private": true,
+  "description": "Runs the API, the storefront and the admin panel together in development. Each part keeps its own package.json; this one only starts them.",
+  "scripts": {
+    "setup": "npm install && npm --prefix backend install && npm --prefix front install && npm --prefix admin install",
+    "db:products": "npm --prefix backend run migration:run && npm --prefix backend run seed:catalog -- --fresh",
+    "db:demo": "npm --prefix backend run migration:run && npm --prefix backend run seed:demo",
+    "dev": "concurrently --kill-others-on-fail --names api,front,admin --prefix-colors blue,green,magenta \"npm --prefix backend run start:dev\" \"npm --prefix front run dev\" \"npm --prefix admin run dev -- --port 5050\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

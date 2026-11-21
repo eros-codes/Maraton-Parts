@@ -305,7 +305,23 @@ sudo tail -f /var/log/nginx/error.log          # nginx
 sudo systemctl disable --now maraton-parts-demo-reset.timer
 ```
 
-بعد حساب‌های دمو را حذف کن، دامنه‌ی خود فروشگاه را بخر، آدرس‌ها را در nginx و env عوض کن، و پشتیبان‌گیری بیرون از سرور را (قدم ۹) راه بینداز.
+### دیتابیس تمیز با کالاهای فروشگاه
+
+دیتابیس دمو پر از سفارش، مشتری و نظر ساختگی است. سایت واقعی از یک دیتابیس خالی شروع می‌کند: فقط حساب مدیر و کالاهای فروشگاه (همان ۷۰ کالا، دسته‌بندی‌ها، برندها و روش‌های ارسال). سرویس را متوقف کن، دیتابیس را از نو بساز و بعد:
+
+```bash
+sudo systemctl stop maraton-parts-api
+sudo mysql -e "DROP DATABASE maraton_parts; CREATE DATABASE maraton_parts CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+sudo -u maratonparts bash -c 'cd /srv/maraton-parts/backend && set -a && . /etc/maraton-parts/backend.env && set +a \
+  && npm run migration:run \
+  && ALLOW_PRODUCTION_SEED=true ADMIN_MOBILE=09xxxxxxxxx ADMIN_PASSWORD="یک-رمز-قوی" ADMIN_DISPLAY_NAME="مدیر فروشگاه" npm run seed:admin \
+  && npm run seed:catalog'
+sudo systemctl start maraton-parts-api
+```
+
+`seed:catalog` (بدون `--fresh`) فقط روی فروشگاهی کار می‌کند که هنوز هیچ کالا، دسته‌بندی یا سفارشی ندارد و چیزی پاک نمی‌کند؛ اگر اشتباهی دوباره اجرا شود، بدون تغییر دادن چیزی خطا می‌دهد. `seed:mock` و `--fresh` روی production اصلاً اجرا نمی‌شوند. عکس‌های کالاهای دمو هم در `/var/lib/maraton-parts/products` می‌مانند و دیگر به کار نمی‌آیند؛ می‌توانی پیش از `seed:catalog` آن پوشه را خالی کنی.
+
+بعد دامنه‌ی خود فروشگاه را بخر، آدرس‌ها را در nginx و env عوض کن، و پشتیبان‌گیری بیرون از سرور را (قدم ۹) راه بینداز.
 
 در آخر این را اجرا کن. همه‌ی موارد بالا را یکی‌یکی بررسی می‌کند: تنظیمات، پشتیبان‌ها و تازگی‌شان، حساب‌های دمو و HTTPS. تا وقتی خطی با `[FAIL]` در خروجی هست، سفارش واقعی نگیر:
 
