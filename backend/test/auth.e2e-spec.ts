@@ -124,7 +124,9 @@ describe('Auth (e2e)', () => {
   });
 
   it('rejects /auth/refresh when there is no refresh token cookie at all', async () => {
-    const res = await request(app.getHttpServer()).post('/auth/refresh');
+    const res = await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .set('X-Requested-With', 'XMLHttpRequest');
     expect(res.status).toBe(401);
   });
 
@@ -136,6 +138,7 @@ describe('Auth (e2e)', () => {
 
     const refreshRes = await request(app.getHttpServer())
       .post('/auth/refresh')
+      .set('X-Requested-With', 'XMLHttpRequest')
       .set('Cookie', firstCookie);
     expect(refreshRes.status).toBe(200);
     const secondCookie = extractRefreshTokenCookie(refreshRes);
@@ -145,6 +148,7 @@ describe('Auth (e2e)', () => {
     // the two tabs share one cookie and refresh together.
     const secondTabRes = await request(app.getHttpServer())
       .post('/auth/refresh')
+      .set('X-Requested-With', 'XMLHttpRequest')
       .set('Cookie', firstCookie);
     expect(secondTabRes.status).toBe(200);
     const siblingCookie = extractRefreshTokenCookie(secondTabRes);
@@ -158,11 +162,13 @@ describe('Auth (e2e)', () => {
       );
     const reuseRes = await request(app.getHttpServer())
       .post('/auth/refresh')
+      .set('X-Requested-With', 'XMLHttpRequest')
       .set('Cookie', firstCookie);
     expect(reuseRes.status).toBe(401);
     for (const cookie of [secondCookie, siblingCookie]) {
       const res = await request(app.getHttpServer())
         .post('/auth/refresh')
+        .set('X-Requested-With', 'XMLHttpRequest')
         .set('Cookie', cookie);
       expect(res.status).toBe(401);
     }
@@ -176,11 +182,13 @@ describe('Auth (e2e)', () => {
 
     const logoutRes = await request(app.getHttpServer())
       .post('/auth/logout')
+      .set('X-Requested-With', 'XMLHttpRequest')
       .set('Cookie', cookie);
     expect(logoutRes.status).toBe(200);
 
     const refreshAfterLogoutRes = await request(app.getHttpServer())
       .post('/auth/refresh')
+      .set('X-Requested-With', 'XMLHttpRequest')
       .set('Cookie', cookie);
     expect(refreshAfterLogoutRes.status).toBe(401);
   });
@@ -235,11 +243,13 @@ describe('Auth (e2e)', () => {
   // the others out.
   it('limits sign-in attempts per number, not per address', async () => {
     const target = `09${(Date.now() + 7).toString().slice(-9)}`;
+    // Four wrong passwords are answered as such; the fifth locks the number
+    // (ACCOUNT_LOCKED), and the per-number rate limit keeps counting behind it.
     for (let i = 0; i < 10; i++) {
       const res = await request(app.getHttpServer())
         .post('/auth/login')
         .send({ mobile: target, password: 'WrongPassword1' });
-      expect(res.status).toBe(401);
+      expect(res.status).toBe(i < 4 ? 401 : 429);
     }
 
     // Same number typed in Persian digits is still the same number.

@@ -2,15 +2,11 @@ import './instrument';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
-import { createValidationPipe } from './common/validation/persian-validation';
-import helmet from 'helmet';
+import { configureApp } from './app.setup';
 import { timingSafeEqual } from 'crypto';
 import type { NextFunction, Request, Response } from 'express';
-import type { ServerResponse } from 'http';
-import { resolveUploadRoot } from './common/storage/local-file-storage';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger } from 'nestjs-pino';
-import cookieParser from 'cookie-parser';
 
 function basicAuth(username: string, password: string) {
   const compare = (given: string, expected: string): boolean => {
@@ -22,7 +18,11 @@ function basicAuth(username: string, password: string) {
   return (req: Request, res: Response, next: NextFunction) => {
     const [scheme, encoded] = (req.headers.authorization ?? '').split(' ');
     if (scheme === 'Basic' && encoded) {
-      const [user, pass] = Buffer.from(encoded, 'base64').toString().split(':');
+      // Split at the first colon only: a password may contain one.
+      const decoded = Buffer.from(encoded, 'base64').toString();
+      const colon = decoded.indexOf(':');
+      const user = colon >= 0 ? decoded.slice(0, colon) : '';
+      const pass = colon >= 0 ? decoded.slice(colon + 1) : '';
       if (user && pass && compare(user, username) && compare(pass, password)) {
         return next();
       }
@@ -39,43 +39,8 @@ async function bootstrap() {
 
   app.useLogger(app.get(Logger));
 
-  const trustProxy = (process.env.TRUST_PROXY ?? '').trim();
-  if (trustProxy && trustProxy !== 'false') {
-    app.set(
-      // Behind a reverse proxy the client IP arrives in a header; without this
-      // every rate limit would count the proxy as one caller.
-      'trust proxy',
-      /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy,
-    );
-  }
-
-  app.use(helmet());
-  app.use(cookieParser());
-
-  app.useStaticAssets(resolveUploadRoot(process.env.UPLOAD_DIR), {
-    prefix: '/uploads',
-    // Uploaded files are data, never pages: the sandbox CSP stops anything
-    // stored here from running script on this origin, and the explicit
-    // cross-origin policy keeps product images usable from a frontend on
-    // another domain.
-    setHeaders: (res: ServerResponse) => {
-      res.setHeader(
-        'Content-Security-Policy',
-        "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox",
-      );
-      res.setHeader('X-Content-Type-Options', 'nosniff');
-      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    },
-  });
-
-  const corsOrigin = process.env.CORS_ORIGIN ?? '*';
-  app.enableCors({
-    origin:
-      corsOrigin === '*' ? true : corsOrigin.split(',').map((o) => o.trim()),
-    credentials: true,
-  });
-
-  app.useGlobalPipes(createValidationPipe());
+  // HTTPS-only, security headers, CORS, uploads, validation: app.setup.ts.
+  configureApp(app);
 
   const isProduction = process.env.NODE_ENV === 'production';
   // Unset or empty: on outside production, off in it.
@@ -104,6 +69,15 @@ async function bootstrap() {
     SwaggerModule.setup('api/docs', app, swaggerDocument);
   }
 
-  await app.listen(process.env.PORT ?? 3000);
+  // In production only nginx, on this same machine, talks to the API: bound
+  // to 127.0.0.1 the port is unreachable from outside even without a
+  // firewall, so nobody can go around HTTPS and the proxy. HOST overrides it
+  // (0.0.0.0 inside a container, for example).
+  const host = process.env.HOST || (isProduction ? '127.0.0.1' : undefined);
+  if (host) {
+    await app.listen(process.env.PORT ?? 3000, host);
+  } else {
+    await app.listen(process.env.PORT ?? 3000);
+  }
 }
 bootstrap();

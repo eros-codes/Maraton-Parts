@@ -8,6 +8,7 @@ import {
   Car,
   Cog,
   Disc3,
+  Factory,
   Headphones,
   RotateCcw,
   CreditCard,
@@ -62,7 +63,13 @@ const SLIDES = [
 ];
 
 // A tile's icon by its category; anything else takes one from the list.
-const TILE_ICON_BY_SLUG = { bearings: Disc3, 'timing-belts': Cog, 'by-car': Car };
+const TILE_ICON_BY_SLUG = {
+  'bearings-passenger': Disc3,
+  'bearings-heavy': Truck,
+  'bearings-industrial': Factory,
+  'timing-belts': Cog,
+  'by-car': Car,
+};
 const TILE_ICONS = [Wrench, Package, Disc3, Cog];
 
 const trustBadges = (returnDays) =>

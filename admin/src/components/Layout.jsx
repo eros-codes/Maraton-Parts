@@ -13,6 +13,7 @@ import {
   Percent,
   RotateCcw,
   ScrollText,
+  ShieldCheck,
   ShoppingBag,
   Sliders,
   Tags,
@@ -54,6 +55,7 @@ const NAV = [
       { to: '/users', label: 'کاربران', icon: Users },
       { to: '/wallets', label: 'کیف پول‌ها', icon: Wallet },
       { to: '/audit', label: 'گزارش فعالیت', icon: ScrollText },
+      { to: '/security', label: 'امنیت حساب', icon: ShieldCheck },
     ],
   },
 ];
@@ -74,6 +76,7 @@ const TITLES = {
   '/users': 'کاربران',
   '/wallets': 'کیف پول‌ها',
   '/audit': 'گزارش فعالیت',
+  '/security': 'امنیت حساب',
 };
 
 export default function Layout() {

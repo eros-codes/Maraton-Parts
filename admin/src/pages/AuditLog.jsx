@@ -25,7 +25,21 @@ const ACTIONS = {
   'return.rejected': 'رد مرجوعی',
   'return.received': 'دریافت کالای مرجوعی',
   'return.refunded': 'بازپرداخت مرجوعی',
+  // Suspicious activity, recorded by the API itself (entity "security").
+  'security.login_locked': 'قفل ورود به‌خاطر رمز اشتباه',
+  'security.refresh_token_reused': 'استفادهٔ دوباره از نشست (احتمال سرقت)',
+  'security.otp_attempts_exceeded': 'کد پیامکی بیش از حد اشتباه',
+  'security.admin_access_denied': 'تلاش غیرمجاز برای مسیر ادمین',
+  'security.csrf_rejected': 'درخواست جعلی از سایت دیگر (CSRF)',
+  'security.insecure_request_rejected': 'درخواست بدون HTTPS',
+  'security.admin_granted': 'دادن دسترسی مدیر',
+  'security.two_factor_enabled': 'فعال شدن ورود دومرحله‌ای',
+  'security.two_factor_disabled': 'خاموش شدن ورود دومرحله‌ای',
+  'security.two_factor_reset': 'ریست ورود دومرحله‌ای',
 };
+
+// Shown as its own entry in the filter: every security event at once.
+const SECURITY_FILTER = 'type:security';
 
 const FIELD_LABELS = {
   status: 'وضعیت',
@@ -42,6 +56,16 @@ const FIELD_LABELS = {
   capacity: 'ظرفیت',
   off_percent: 'درصد تخفیف',
   off_amount: 'مبلغ تخفیف',
+  key: 'شناسه',
+  ip: 'آی‌پی',
+  path: 'مسیر',
+  route: 'مسیر',
+  origin: 'مبدأ',
+  reason: 'دلیل',
+  purpose: 'نوع کد',
+  lockedUntil: 'قفل تا',
+  lockNumber: 'دفعهٔ قفل',
+  by: 'توسط',
 };
 
 const show = (value) =>
@@ -83,7 +107,13 @@ export default function AuditLog() {
     setFailed(false);
     api
       .get(
-        `/audit-logs${buildQuery({ page, limit: 25, action: action || undefined })}`,
+        `/audit-logs${buildQuery({
+          page,
+          limit: 25,
+          ...(action === SECURITY_FILTER
+            ? { entityType: 'security' }
+            : { action: action || undefined }),
+        })}`,
         { auth: true },
       )
       .then((data) =>
@@ -115,6 +145,7 @@ export default function AuditLog() {
           }}
         >
           <option value="">همه فعالیت‌ها</option>
+          <option value={SECURITY_FILTER}>همهٔ رویدادهای امنیتی</option>
           {Object.entries(ACTIONS).map(([value, label]) => (
             <option key={value} value={value}>
               {label}

@@ -339,21 +339,32 @@ export class ProductsService {
       if (!plan) {
         return false;
       }
-      qb.andWhere(
-        new Brackets((title) => {
-          title.where(
-            plan.fullTextQuery
-              ? 'MATCH(product.title) AGAINST (:fullTextQuery IN BOOLEAN MODE)'
-              : '1 = 1',
-            plan.fullTextQuery ? { fullTextQuery: plan.fullTextQuery } : {},
-          );
-          plan.likePatterns.forEach((pattern, index) => {
-            title.andWhere(`product.title LIKE :titlePattern${index}`, {
-              [`titlePattern${index}`]: pattern,
+      // Every word has to be found, and each one may be found in the
+      // title, in a spec (part number, "suitable for", origin...) or in the
+      // name of one of the product's categories - so "206" brings every
+      // part filed under the car, whatever its title says. A catalogue of
+      // parts is small enough for LIKE to scan.
+      plan.terms.forEach((forms, termIndex) => {
+        qb.andWhere(
+          new Brackets((word) => {
+            forms.forEach((pattern, formIndex) => {
+              const key = `searchTerm${termIndex}_${formIndex}`;
+              word.orWhere(
+                `(product.title LIKE :${key}` +
+                  ' OR EXISTS (SELECT 1 FROM product_attribute_values pav' +
+                  ' LEFT JOIN attribute_options ao ON ao.id = pav.option_id AND ao.deleted_at IS NULL' +
+                  ` WHERE pav.product_id = product.id AND (pav.value_text LIKE :${key} OR ao.value LIKE :${key}))` +
+                  ' OR EXISTS (SELECT 1 FROM product_category spc' +
+                  ' INNER JOIN categories sc ON sc.id = spc.category_id AND sc.deleted_at IS NULL' +
+                  // The parent counts too: "سواری" finds every passenger-car bearing.
+                  ' LEFT JOIN categories scp ON scp.id = sc.parent_id AND scp.deleted_at IS NULL' +
+                  ` WHERE spc.product_id = product.id AND (sc.title LIKE :${key} OR scp.title LIKE :${key})))`,
+                { [key]: pattern },
+              );
             });
-          });
-        }),
-      );
+          }),
+        );
+      });
     }
     return true;
   }

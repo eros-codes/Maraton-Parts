@@ -31,6 +31,12 @@ import { SmsService } from '../sms/sms.service';
 import { AppError } from '../common/errors/app-error';
 import { ErrorCodes } from '../common/errors/error-codes';
 import { isDuplicateEntryError } from '../common/database/mysql-errors';
+import { LoginLockoutService } from './login-lockout.service';
+import {
+  TwoFactorChallenge,
+  TwoFactorService,
+} from './two-factor/two-factor.service';
+import { SecurityEventsService } from '../audit/security-events.service';
 
 const MAX_OTP_ATTEMPTS = 5;
 const OTP_RESEND_COOLDOWN_SECONDS = 60;
@@ -64,7 +70,15 @@ export class AuthService {
     private readonly otpRepository: Repository<OtpVerification>,
     private readonly smsService: SmsService,
     private readonly dataSource: DataSource,
+    private readonly lockouts: LoginLockoutService,
+    private readonly securityEvents: SecurityEventsService,
+    private readonly twoFactor: TwoFactorService,
   ) {}
+
+  // The session for a user who has passed every step of sign-in.
+  async signIn(user: User) {
+    return this.issueTokens(user);
+  }
 
   private hashRefreshToken(token: string): string {
     return createHash('sha256').update(token).digest('hex');
@@ -96,7 +110,8 @@ export class AuthService {
     purpose: OtpPurposeEnum,
     code: string,
   ): Promise<OtpVerification> {
-    type Outcome = { error: AppError } | { otp: OtpVerification };
+    type Outcome =
+      { error: AppError; exceeded?: boolean } | { otp: OtpVerification };
     const outcome = await this.dataSource.transaction(
       async (manager): Promise<Outcome> => {
         const otps = manager.getRepository(OtpVerification);
@@ -126,6 +141,7 @@ export class AuthService {
           if (otp.attempts >= MAX_OTP_ATTEMPTS) {
             await otps.delete({ id: otp.id });
             return {
+              exceeded: true,
               error: AppError.badRequest(
                 ErrorCodes.OTP_ATTEMPTS_EXCEEDED,
                 'Too many incorrect attempts - please request a new code',
@@ -146,7 +162,15 @@ export class AuthService {
       },
     );
 
-    if ('error' in outcome) throw outcome.error;
+    if ('error' in outcome) {
+      if (outcome.exceeded) {
+        await this.securityEvents.record('security.otp_attempts_exceeded', {
+          key: mobile,
+          purpose,
+        });
+      }
+      throw outcome.error;
+    }
     return outcome.otp;
   }
 
@@ -380,6 +404,8 @@ export class AuthService {
       await bcrypt.hash(dto.password, 10),
     );
     await this.refreshTokenRepository.delete({ user: { id: user.id } });
+    // Proving the number by SMS is the way out of a sign-in lock.
+    await this.lockouts.clear(dto.mobile);
   }
 
   // Changing a password while signed in: the current one has to be
@@ -436,23 +462,35 @@ export class AuthService {
     return { user, ...tokens };
   }
 
-  async login(loginDto: LoginDto) {
+  // Tokens - or, for an admin with two-step sign-in, a challenge to answer
+  // with a code first (POST /auth/2fa/login). The sign-in lock is cleared
+  // only once every step passed, so retyping the password does not buy
+  // more guesses at the code.
+  async login(
+    loginDto: LoginDto,
+    ip?: string | null,
+  ): Promise<
+    { accessToken: string; refreshToken: string } | TwoFactorChallenge
+  > {
     const { mobile, password } = loginDto;
+    // Checked first and the same for every number, registered or not.
+    await this.lockouts.assertNotLocked(mobile);
     const user = await this.userService.findOneByMobileWithPassword(mobile);
-    if (!user) {
-      await bcrypt.compare(password, TIMING_DUMMY_HASH);
+    const isMatch = user
+      ? await bcrypt.compare(password, user.password)
+      : await bcrypt.compare(password, TIMING_DUMMY_HASH).then(() => false);
+    if (!user || !isMatch) {
+      // Throws ACCOUNT_LOCKED instead when this failure was the last one
+      // allowed.
+      await this.lockouts.recordFailure(mobile, ip);
       throw AppError.unauthorized(
         ErrorCodes.INVALID_CREDENTIALS,
         'Mobile or password is incorrect',
       );
     }
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      throw AppError.unauthorized(
-        ErrorCodes.INVALID_CREDENTIALS,
-        'Mobile or password is incorrect',
-      );
-    }
+    const challenge = await this.twoFactor.challengeFor(user);
+    if (challenge) return challenge;
+    await this.lockouts.clear(mobile);
     return this.issueTokens(user);
   }
 
@@ -491,6 +529,8 @@ export class AuthService {
           kind: 'reused' as const,
           familyId: record.familyId,
           userId: record.user?.id,
+          isAdmin: record.user?.role === userRoleEnum.AdminUser,
+          mobile: record.user?.mobile,
         };
       }
       if (record.expiresAt < new Date()) {
@@ -522,8 +562,18 @@ export class AuthService {
 
     if (outcome.kind === 'reused') {
       await this.refreshTokenRepository.delete({ familyId: outcome.familyId });
-      this.logger.warn(
-        `Refresh token reuse detected for user ${outcome.userId ?? 'unknown'} - the whole session chain was revoked`,
+      await this.securityEvents.record(
+        'security.refresh_token_reused',
+        {
+          key: `user:${outcome.userId ?? 'unknown'}`,
+          userId: outcome.userId ?? null,
+          note: 'the whole session chain was revoked',
+        },
+        // A customer's replayed token is logged; an admin's is the owner's
+        // business right now.
+        outcome.isAdmin
+          ? { alert: 'admin_session_stolen', subject: outcome.mobile }
+          : {},
       );
       throw new UnauthorizedException(
         'This refresh token has already been used - every session it belongs to has been revoked, please log in again',

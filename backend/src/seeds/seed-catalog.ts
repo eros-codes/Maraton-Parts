@@ -232,7 +232,8 @@ async function seed() {
     const beltSpecs = [partNumber, origin, fits, teeth, width, warranty];
     for (const node of CATEGORY_TREE) {
       if (node.slug === 'by-car') continue;
-      for (const child of node.children) {
+      // A parent with no children takes the specs itself.
+      for (const child of node.children.length ? node.children : [node]) {
         const category = categoryBySlug.get(child.slug)!;
         for (const spec of node.slug === 'timing-belts'
           ? beltSpecs
@@ -300,6 +301,9 @@ async function seed() {
           brand: brandBySlug.get(item.brand) ?? null,
           categories: [
             categoryBySlug.get(item.category)!,
+            ...(item.uses ?? []).map((use) =>
+              categoryBySlug.get(`bearings-${use}`)!,
+            ),
             ...item.cars.map((key) => categoryBySlug.get(`car-${key}`)!),
           ],
           is_published: true,

@@ -10,6 +10,7 @@ interface JwtPayload {
   sub: number;
   role: string;
   iat?: number;
+  purpose?: string;
 }
 
 @Injectable()
@@ -22,6 +23,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
+      // Only the algorithm the tokens are signed with. Accepting whatever
+      // the token's header names is how "alg: none" and key-confusion
+      // forgeries get in.
+      algorithms: ['HS256'],
       secretOrKey: configServis.getOrThrow<string>('JWT_SECRET_KEY'),
     });
   }
@@ -35,6 +40,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   // One primary-key lookup per request closes all three. The role is taken
   // from the row, not the token, for the same reason.
   async validate(payload: JwtPayload) {
+    // Only access tokens carry no purpose. Anything else signed by this app
+    // (a two-step sign-in challenge) is not a way in, even if it were ever
+    // signed with the same key.
+    if (payload.purpose !== undefined) {
+      throw new UnauthorizedException('Not an access token');
+    }
     const user = await this.users.findOne({
       select: {
         id: true,

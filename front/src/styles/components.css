@@ -27,8 +27,12 @@
   display: flex;
   align-items: center;
   gap: 18px;
-  padding-block: 14px;
-  padding: 15px 145px;
+  /* A full-width black bar whose content lines up with the page's: the
+     side padding is whatever centres a container-wide row, and never less
+     than a phone's 16px. (A fixed 145px made the bar wider than a phone
+     and pushed the whole page sideways.) */
+  padding-block: 15px;
+  padding-inline: max(16px, calc((100% - var(--container)) / 2));
   background-color: #000;
 }
 
@@ -527,8 +531,9 @@
   position: relative;
   display: grid;
   place-items: center;
-  aspect-ratio: 5 / 4;
-  padding: 12px;
+  /* Every product photo on the site is square (cards, gallery, thumbnails,
+     cart). A photo of any other shape is zoomed until it fills the square. */
+  aspect-ratio: 1 / 1;
   border-radius: var(--radius-sm);
   background: var(--surface-2);
   overflow: hidden;
@@ -537,10 +542,9 @@
 /* No mix-blend-mode here on purpose: it wrecks real product photos that have
    a transparent or dark background. The tinted panel does the same job. */
 .product-media img {
-  min-width: 0;
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
   transition: transform 0.35s ease;
 }
 
@@ -584,11 +588,6 @@
   font-weight: 700;
   line-height: 1.7;
   white-space: nowrap;
-}
-
-.flag-off {
-  background: var(--ink-900);
-  color: #fff;
 }
 
 .flag-hot {
@@ -687,7 +686,20 @@
 .pp-top {
   display: flex;
   align-items: center;
-  min-height: 18px;
+  gap: 6px;
+  min-height: 20px;
+}
+
+/* Discount pill right beside the struck-through price. */
+.pp-off {
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-600);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.6;
+  white-space: nowrap;
 }
 
 .pp-was {
@@ -979,13 +991,13 @@
   border-radius: var(--radius-lg);
   display: grid;
   place-items: center;
-  padding: 28px;
+  overflow: hidden;
 }
 
 .gallery-main img {
-  max-height: 100%;
-  object-fit: contain;
-  mix-blend-mode: multiply;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .gallery-thumbs {
@@ -1000,10 +1012,18 @@
   border-radius: var(--radius-sm);
   border: 1px solid var(--line);
   background: var(--surface-2);
-  padding: 6px;
+  padding: 0;
+  overflow: hidden;
   cursor: pointer;
   display: grid;
   place-items: center;
+}
+
+.gallery-thumb img,
+.cart-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 /* The video fills the frame edge to edge, on black, like any player. */
@@ -1233,12 +1253,13 @@
 .cart-thumb {
   width: 92px;
   height: 92px;
+  flex-shrink: 0;
   border-radius: var(--radius-sm);
   background: linear-gradient(160deg, #ffffff, var(--brand-50));
   border: 1px solid var(--line);
   display: grid;
   place-items: center;
-  padding: 8px;
+  overflow: hidden;
 }
 
 .qty {
@@ -1997,9 +2018,6 @@
     gap: 10px;
     padding: 8px;
   }
-  .product-media {
-    padding: 8px;
-  }
   .product-title {
     font-size: 12.5px;
     line-height: 1.7;
@@ -2037,7 +2055,6 @@
 
   /* ---------- product page ---------- */
   .gallery-main {
-    padding: 16px;
     border-radius: var(--radius);
   }
   .gallery-thumb {
@@ -2318,6 +2335,10 @@
   display: flex;
   gap: 14px;
   overflow-x: auto;
+  /* Inside a <fieldset>, Chrome lets a right-to-left scroller's hidden cards
+     widen the page anyway (a phone could be dragged sideways by ~900px).
+     Paint containment keeps them inside the strip. */
+  contain: paint;
   scroll-snap-type: x mandatory;
   scroll-padding-inline: 2px;
   padding: 6px 2px 10px;

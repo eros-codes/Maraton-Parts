@@ -80,6 +80,18 @@ export const ErrorCodes = {
   OTP_NOT_FOUND: 'OTP_NOT_FOUND',
   OTP_COOLDOWN: 'OTP_COOLDOWN',
   OTP_SEND_LIMIT: 'OTP_SEND_LIMIT',
+  // Admin two-step sign-in (authenticator app).
+  TWO_FACTOR_INCORRECT: 'TWO_FACTOR_INCORRECT',
+  TWO_FACTOR_CHALLENGE_EXPIRED: 'TWO_FACTOR_CHALLENGE_EXPIRED',
+  TWO_FACTOR_NOT_STARTED: 'TWO_FACTOR_NOT_STARTED',
+  TWO_FACTOR_REQUIRED: 'TWO_FACTOR_REQUIRED',
+  // Too many wrong passwords for one number; details.retryAfter (seconds).
+  ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',
+  // A cookie-authenticated request (refresh, logout) without the custom
+  // header, or from a site that is not ours.
+  CSRF_REJECTED: 'CSRF_REJECTED',
+  // Production refuses plain HTTP.
+  HTTPS_REQUIRED: 'HTTPS_REQUIRED',
   CURRENT_PASSWORD_INCORRECT: 'CURRENT_PASSWORD_INCORRECT',
 
   // Returns

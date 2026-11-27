@@ -240,14 +240,6 @@ export default function ProductDetail() {
                 <ImageOff size={44} />
               </span>
             )}
-            {off > 0 ? (
-              <span
-                className="badge badge-accent"
-                style={{ position: 'absolute', top: 16, insetInlineStart: 16 }}
-              >
-                ٪{toPersianDigits(off)} تخفیف
-              </span>
-            ) : null}
           </div>
 
           {media.length > 1 ? (

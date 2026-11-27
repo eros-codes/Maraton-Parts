@@ -16,6 +16,7 @@ import Shipping from './pages/Shipping';
 import Users from './pages/Users';
 import Wallets from './pages/Wallets';
 import AuditLog from './pages/AuditLog';
+import Security from './pages/Security';
 
 export default function App() {
   return (
@@ -37,6 +38,7 @@ export default function App() {
         <Route path="users" element={<Users />} />
         <Route path="wallets" element={<Wallets />} />
         <Route path="audit" element={<AuditLog />} />
+        <Route path="security" element={<Security />} />
         <Route path="*" element={<Dashboard />} />
       </Route>
     </Routes>

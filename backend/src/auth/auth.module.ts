@@ -11,23 +11,37 @@ import { AuthController } from './auth.controller';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { OtpVerification } from './entities/otp-verification.entity';
 import { SmsModule } from '../sms/sms.module';
+import { LoginLockout } from './entities/login-lockout.entity';
+import { LoginLockoutService } from './login-lockout.service';
+import { AdminTwoFactor } from './entities/admin-two-factor.entity';
+import { TwoFactorService } from './two-factor/two-factor.service';
 
 @Module({
   imports: [
     UsersModule,
     PassportModule,
     SmsModule,
-    TypeOrmModule.forFeature([RefreshToken, OtpVerification, User]),
+    TypeOrmModule.forFeature([
+      RefreshToken,
+      OtpVerification,
+      User,
+      LoginLockout,
+      AdminTwoFactor,
+    ]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         secret: configService.get('JWT_SECRET_KEY'),
-        signOptions: { expiresIn: configService.get('JWT_EXPIRATION') },
+        signOptions: {
+          expiresIn: configService.get('JWT_EXPIRATION'),
+          algorithm: 'HS256',
+        },
+        verifyOptions: { algorithms: ['HS256'] },
       }),
     }),
   ],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, LoginLockoutService, TwoFactorService],
   controllers: [AuthController],
 })
 export class AuthModule {}

@@ -79,11 +79,7 @@ export default function Cart() {
                 className="cart-thumb"
               >
                 {line.image ? (
-                  <img
-                    src={line.image}
-                    alt={line.title}
-                    style={{ maxHeight: '100%', objectFit: 'contain' }}
-                  />
+                  <img src={line.image} alt={line.title} />
                 ) : (
                   <ImageOff size={22} color="var(--ink-300)" />
                 )}

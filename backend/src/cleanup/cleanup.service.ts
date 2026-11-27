@@ -5,8 +5,12 @@ import { LessThan, Repository } from 'typeorm';
 import { RefreshToken } from '../auth/entities/refresh-token.entity';
 import { OtpVerification } from '../auth/entities/otp-verification.entity';
 import { RateLimit } from '../common/throttler/rate-limit.entity';
+import { LoginLockout } from '../auth/entities/login-lockout.entity';
 
 const USED_TOKEN_RETENTION_HOURS = 24;
+// A number with no failed sign-in for a week starts again from a clean
+// slate (its next lock is the short one again).
+const LOCKOUT_RETENTION_DAYS = 7;
 
 @Injectable()
 export class CleanupService {
@@ -19,6 +23,8 @@ export class CleanupService {
     private readonly otpRepository: Repository<OtpVerification>,
     @InjectRepository(RateLimit)
     private readonly rateLimitRepository: Repository<RateLimit>,
+    @InjectRepository(LoginLockout)
+    private readonly lockoutRepository: Repository<LoginLockout>,
   ) {}
 
   @Cron(CronExpression.EVERY_HOUR)
@@ -49,8 +55,15 @@ export class CleanupService {
       ),
     });
 
+    const lockoutResult = await this.lockoutRepository.delete({
+      updated_at: LessThan(
+        new Date(now.getTime() - LOCKOUT_RETENTION_DAYS * 24 * 60 * 60 * 1000),
+      ),
+    });
+
     this.logger.log(
       `Cleanup: removed ${refreshResult.affected ?? 0} expired refresh tokens, ` +
+        `${lockoutResult.affected ?? 0} stale sign-in lock records, ` +
         `${usedResult.affected ?? 0} consumed ones past the reuse-detection window, ` +
         `${otpResult.affected ?? 0} expired OTP requests`,
     );

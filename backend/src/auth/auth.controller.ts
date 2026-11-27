@@ -1,8 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
+  Get,
   HttpCode,
   HttpStatus,
+  Param,
   Patch,
   Post,
   Req,
@@ -34,6 +37,18 @@ import {
   clearRefreshTokenCookie,
 } from './utils/refresh-token-cookie';
 import { ApiTags } from '@nestjs/swagger';
+import { CookieCsrfGuard } from '../common/security/csrf.guard';
+import { RolesGuard } from './guards/roles.guard';
+import { Roles } from './decorators/roles.decorator';
+import userRoleEnum from '../users/enums/userRoleEnum';
+import { ParseIdPipe } from '../common/pipes/parse-id.pipe';
+import { TwoFactorService } from './two-factor/two-factor.service';
+import {
+  DisableTwoFactorDto,
+  TwoFactorCodeDto,
+  TwoFactorSetupDto,
+  TwoFactorLoginDto,
+} from './dto/two-factor.dto';
 
 const MINUTE = 60_000;
 
@@ -43,6 +58,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly configService: ConfigService,
+    private readonly twoFactor: TwoFactorService,
   ) {}
 
   // Per number: the real limit. Per IP: only a ceiling on one address
@@ -84,14 +100,130 @@ export class AuthController {
   @Post('login')
   async login(
     @Body() loginDto: LoginDto,
+    @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const { accessToken, refreshToken } =
-      await this.authService.login(loginDto);
+    const result = await this.authService.login(loginDto, request.ip);
+    // An admin with two-step sign-in: no session yet, only the challenge
+    // to answer at POST /auth/2fa/login.
+    if ('challengeToken' in result) {
+      return {
+        data: result,
+        message:
+          result.twoFactor === 'setup'
+            ? 'Set up the authenticator app to finish signing in'
+            : 'Enter the code from the authenticator app',
+      };
+    }
+    setRefreshTokenCookie(response, result.refreshToken, this.configService);
+    return {
+      data: { accessToken: result.accessToken },
+      message: 'User logged in successfully',
+    };
+  }
+
+  // Step two of an admin's sign-in. Wrong codes count towards the same
+  // five-strike lock as wrong passwords.
+  @Throttle({ default: { limit: 30, ttl: MINUTE } })
+  @HttpCode(HttpStatus.OK)
+  @Post('2fa/login')
+  async twoFactorLogin(
+    @Body() dto: TwoFactorLoginDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const user = await this.twoFactor.completeChallenge(
+      dto.challengeToken,
+      dto.code,
+      request.ip,
+    );
+    const { accessToken, refreshToken } = await this.authService.signIn(user);
     setRefreshTokenCookie(response, refreshToken, this.configService);
     return { data: { accessToken }, message: 'User logged in successfully' };
   }
 
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(userRoleEnum.AdminUser)
+  @Get('2fa')
+  async twoFactorStatus(@CurrentUser() currentUser: CurrentUserPayload) {
+    return {
+      data: await this.twoFactor.status(currentUser.userId),
+      message: 'Two-step sign-in status',
+    };
+  }
+
+  // Turning it on (or moving it to a new phone): a new secret to scan,
+  // confirmed by the first code from it.
+  @Throttle({ default: { limit: 10, ttl: MINUTE } })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(userRoleEnum.AdminUser)
+  @Post('2fa/setup')
+  async twoFactorSetup(
+    @Body() dto: TwoFactorSetupDto,
+    @Req() request: Request,
+    @CurrentUser() currentUser: CurrentUserPayload,
+  ) {
+    const setup = await this.twoFactor.beginSetupFromPanel(
+      { id: currentUser.userId, mobile: currentUser.mobile },
+      dto.code,
+      request.ip,
+    );
+    return { data: setup, message: 'Scan the code with the authenticator app' };
+  }
+
+  @Throttle({ default: { limit: 10, ttl: MINUTE } })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(userRoleEnum.AdminUser)
+  @HttpCode(HttpStatus.OK)
+  @Post('2fa/enable')
+  async twoFactorEnable(
+    @Body() dto: TwoFactorCodeDto,
+    @Req() request: Request,
+    @CurrentUser() currentUser: CurrentUserPayload,
+  ) {
+    await this.twoFactor.enable(
+      { id: currentUser.userId, mobile: currentUser.mobile },
+      dto.code,
+      request.ip,
+    );
+    return { message: 'Two-step sign-in is on' };
+  }
+
+  @Throttle({ default: { limit: 10, ttl: MINUTE } })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(userRoleEnum.AdminUser)
+  @HttpCode(HttpStatus.OK)
+  @Post('2fa/disable')
+  async twoFactorDisable(
+    @Body() dto: DisableTwoFactorDto,
+    @Req() request: Request,
+    @CurrentUser() currentUser: CurrentUserPayload,
+  ) {
+    await this.twoFactor.disable(
+      currentUser.userId,
+      dto.password,
+      dto.code,
+      request.ip,
+    );
+    return { message: 'Two-step sign-in is off' };
+  }
+
+  // For an admin who lost their phone - done by another admin.
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(userRoleEnum.AdminUser)
+  @Delete('2fa/users/:id')
+  async twoFactorReset(
+    @Param('id', ParseIdPipe) id: number,
+    @Req() request: Request,
+    @CurrentUser() currentUser: CurrentUserPayload,
+  ) {
+    await this.twoFactor.reset(id, currentUser.userId, request.ip);
+    return { message: 'Two-step sign-in was reset for this account' };
+  }
+
+  // Authenticated by the cookie alone, so it needs the CSRF check (see
+  // CookieCsrfGuard).
+  @UseGuards(CookieCsrfGuard)
   @HttpCode(HttpStatus.OK)
   @Post('refresh')
   async refresh(
@@ -156,6 +288,7 @@ export class AuthController {
     return { message: 'Password changed - please sign in again' };
   }
 
+  @UseGuards(CookieCsrfGuard)
   @HttpCode(HttpStatus.OK)
   @Post('logout')
   async logout(

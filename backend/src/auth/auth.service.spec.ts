@@ -13,6 +13,9 @@ import { RefreshToken } from './entities/refresh-token.entity';
 import { OtpVerification } from './entities/otp-verification.entity';
 import { ErrorCodes } from '../common/errors/error-codes';
 import OtpPurposeEnum from './enums/otp-purpose.enum';
+import { LoginLockoutService } from './login-lockout.service';
+import { SecurityEventsService } from '../audit/security-events.service';
+import { TwoFactorService } from './two-factor/two-factor.service';
 
 const OTP_SECRET = 'test-otp-secret-at-least-32-characters-long';
 const hashOtpForTest = (code: string) =>
@@ -50,8 +53,22 @@ describe('AuthService', () => {
     sendAccountExists: jest.Mock;
     canSendOtp: boolean;
   };
+  let lockouts: {
+    assertNotLocked: jest.Mock;
+    recordFailure: jest.Mock;
+    clear: jest.Mock;
+  };
+  let securityEvents: { record: jest.Mock };
+  let twoFactor: { challengeFor: jest.Mock };
 
   beforeEach(async () => {
+    lockouts = {
+      assertNotLocked: jest.fn().mockResolvedValue(undefined),
+      recordFailure: jest.fn().mockResolvedValue(undefined),
+      clear: jest.fn().mockResolvedValue(undefined),
+    };
+    securityEvents = { record: jest.fn().mockResolvedValue(undefined) };
+    twoFactor = { challengeFor: jest.fn().mockResolvedValue(null) };
     refreshQueryBuilder = {};
     for (const method of ['update', 'set', 'where']) {
       refreshQueryBuilder[method] = jest.fn(() => refreshQueryBuilder);
@@ -103,6 +120,9 @@ describe('AuthService', () => {
         },
         { provide: SmsService, useValue: smsService },
         { provide: DataSource, useValue: mockDataSource },
+        { provide: LoginLockoutService, useValue: lockouts },
+        { provide: SecurityEventsService, useValue: securityEvents },
+        { provide: TwoFactorService, useValue: twoFactor },
       ],
     }).compile();
 
@@ -405,6 +425,10 @@ describe('AuthService', () => {
         service.verifyOtp({ mobile: '09120000000', code: '000000' }),
       ).rejects.toMatchObject({ code: ErrorCodes.OTP_ATTEMPTS_EXCEEDED });
       expect(otpRepository.delete).toHaveBeenCalledWith({ id: 11 });
+      expect(securityEvents.record).toHaveBeenCalledWith(
+        'security.otp_attempts_exceeded',
+        expect.objectContaining({ key: '09120000000' }),
+      );
     });
 
     it('rejects an expired code', async () => {
@@ -443,6 +467,56 @@ describe('AuthService', () => {
   });
 
   describe('login', () => {
+    it('refuses a locked number before even looking at the password', async () => {
+      lockouts.assertNotLocked.mockRejectedValue(
+        Object.assign(new Error('locked'), { code: ErrorCodes.ACCOUNT_LOCKED }),
+      );
+
+      await expect(
+        service.login({ mobile: '09120000000', password: 'CorrectPassword1' }),
+      ).rejects.toMatchObject({ code: ErrorCodes.ACCOUNT_LOCKED });
+      expect(usersService.findOneByMobileWithPassword).not.toHaveBeenCalled();
+    });
+
+    it('counts a wrong password against the number, and clears it on success', async () => {
+      const hash = await bcrypt.hash('CorrectPassword1', 10);
+      usersService.findOneByMobileWithPassword.mockResolvedValue({
+        id: 1,
+        mobile: '09120000000',
+        role: 'user',
+        password: hash,
+      });
+
+      await expect(
+        service.login(
+          { mobile: '09120000000', password: 'WrongPassword1' },
+          '1.2.3.4',
+        ),
+      ).rejects.toMatchObject({ code: ErrorCodes.INVALID_CREDENTIALS });
+      expect(lockouts.recordFailure).toHaveBeenCalledWith(
+        '09120000000',
+        '1.2.3.4',
+      );
+      expect(lockouts.clear).not.toHaveBeenCalled();
+
+      await service.login({
+        mobile: '09120000000',
+        password: 'CorrectPassword1',
+      });
+      expect(lockouts.clear).toHaveBeenCalledWith('09120000000');
+    });
+
+    it('counts failures for a number with no account the same way', async () => {
+      usersService.findOneByMobileWithPassword.mockResolvedValue(null);
+      await expect(
+        service.login({ mobile: '09129999999', password: 'Whatever1' }),
+      ).rejects.toMatchObject({ code: ErrorCodes.INVALID_CREDENTIALS });
+      expect(lockouts.recordFailure).toHaveBeenCalledWith(
+        '09129999999',
+        undefined,
+      );
+    });
+
     it('rejects a mobile number with no account', async () => {
       usersService.findOneByMobileWithPassword.mockResolvedValue(null);
 
@@ -473,14 +547,41 @@ describe('AuthService', () => {
         password: hash,
       });
 
+      const result = (await service.login({
+        mobile: '09120000000',
+        password: 'CorrectPassword1',
+      })) as { accessToken: string; refreshToken: string };
+
+      expect(result.accessToken).toBe('signed.jwt.token');
+      expect(typeof result.refreshToken).toBe('string');
+      expect(refreshTokenRepository.save).toHaveBeenCalled();
+    });
+
+    it('answers an admin with two-step sign-in with a challenge, not a session', async () => {
+      const hash = await bcrypt.hash('CorrectPassword1', 10);
+      usersService.findOneByMobileWithPassword.mockResolvedValue({
+        id: 1,
+        mobile: '09120000000',
+        role: 'admin',
+        password: hash,
+      });
+      twoFactor.challengeFor.mockResolvedValue({
+        twoFactor: 'verify',
+        challengeToken: 'challenge',
+      });
+
       const result = await service.login({
         mobile: '09120000000',
         password: 'CorrectPassword1',
       });
 
-      expect(result.accessToken).toBe('signed.jwt.token');
-      expect(typeof result.refreshToken).toBe('string');
-      expect(refreshTokenRepository.save).toHaveBeenCalled();
+      expect(result).toEqual({
+        twoFactor: 'verify',
+        challengeToken: 'challenge',
+      });
+      expect(refreshTokenRepository.save).not.toHaveBeenCalled();
+      // The lock is only cleared once the code is right too.
+      expect(lockouts.clear).not.toHaveBeenCalled();
     });
   });
 
@@ -548,6 +649,13 @@ describe('AuthService', () => {
         familyId: 'family-1',
       });
       expect(refreshTokenRepository.save).not.toHaveBeenCalled();
+      // ...and the theft is recorded for the shop to see.
+      expect(securityEvents.record).toHaveBeenCalledWith(
+        'security.refresh_token_reused',
+        expect.objectContaining({ userId: 7 }),
+        // A customer's token: logged, no alert to the owner.
+        {},
+      );
     });
 
     // Two tabs, one cookie: both refresh with the same token. The second
@@ -722,6 +830,8 @@ describe('AuthService', () => {
       expect(refreshTokenRepository.delete).toHaveBeenCalledWith({
         user: { id: 7 },
       });
+      // Proving the number by SMS lifts a sign-in lock.
+      expect(lockouts.clear).toHaveBeenCalledWith('09120000000');
     });
   });
 

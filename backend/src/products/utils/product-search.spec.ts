@@ -1,24 +1,32 @@
-import { buildProductSearchPlan, escapeLikePattern } from './product-search';
+import {
+  buildProductSearchPlan,
+  escapeLikePattern,
+  normalizeSearchText,
+} from './product-search';
 
 describe('buildProductSearchPlan', () => {
-  it('requires every indexable word as a prefix match', () => {
-    expect(buildProductSearchPlan('Samsung Galaxy')).toEqual({
-      fullTextQuery: '+samsung* +galaxy*',
-      likePatterns: [],
+  it('makes every word its own required match', () => {
+    expect(buildProductSearchPlan('بلبرینگ چرخ')).toEqual({
+      terms: [['%بلبرینگ%'], ['%چرخ%']],
     });
   });
 
-  it('moves short words and InnoDB stopwords to LIKE filters (they are not in the index)', () => {
-    expect(buildProductSearchPlan('The Witcher 3')).toEqual({
-      fullTextQuery: '+witcher*',
-      likePatterns: ['%the%', '%3%'],
+  it('looks for a number with Latin and with Persian digits, however it was typed', () => {
+    const both = { terms: [['%پژو%'], ['%206%', '%۲۰۶%']] };
+    expect(buildProductSearchPlan('پژو ۲۰۶')).toEqual(both);
+    expect(buildProductSearchPlan('پژو 206')).toEqual(both);
+    expect(buildProductSearchPlan('پژو ٢٠٦')).toEqual(both);
+  });
+
+  it('keeps a part number whole and in lower case', () => {
+    expect(buildProductSearchPlan('VKC2216')).toEqual({
+      terms: [['%vkc2216%', '%vkc۲۲۱۶%']],
     });
   });
 
-  it('handles Persian text and strips boolean-mode operators', () => {
-    expect(buildProductSearchPlan('+گوشی -"سامسونگ"* @A5')).toEqual({
-      fullTextQuery: '+گوشی* +سامسونگ*',
-      likePatterns: ['%a5%'],
+  it('drops punctuation and repeated words', () => {
+    expect(buildProductSearchPlan('+تسمه -"تسمه"* @A5')).toEqual({
+      terms: [['%تسمه%'], ['%a5%', '%a۵%']],
     });
   });
 
@@ -28,5 +36,11 @@ describe('buildProductSearchPlan', () => {
 
   it('escapes LIKE wildcards', () => {
     expect(escapeLikePattern('50%_off\\')).toBe('50\\%\\_off\\\\');
+  });
+});
+
+describe('normalizeSearchText', () => {
+  it('reads Arabic letters as Persian', () => {
+    expect(normalizeSearchText('بلبرينگ كلاچ')).toBe('بلبرینگ کلاچ');
   });
 });

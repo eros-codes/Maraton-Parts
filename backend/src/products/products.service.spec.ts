@@ -247,22 +247,23 @@ describe('ProductsService', () => {
       return seen;
     };
 
-    it('uses the fulltext index for long words and LIKE only for short ones', async () => {
-      await service.findAll({ search: 'iPhone 13', page: 1, limit: 10 });
+    it('needs every word, each in the title, a spec or a category name', async () => {
+      await service.findAll({ search: 'پژو ۲۰۶', page: 1, limit: 10 });
 
       const conditions = searchConditions();
-      expect(conditions).toContainEqual([
-        'MATCH(product.title) AGAINST (:fullTextQuery IN BOOLEAN MODE)',
-        { fullTextQuery: '+iphone*' },
-      ]);
-      expect(conditions).toContainEqual([
-        'product.title LIKE :titlePattern0',
-        { titlePattern0: '%13%' },
-      ]);
-      // Titles only.
-      expect(conditions.some(([sql]) => String(sql).includes('sku'))).toBe(
-        false,
-      );
+      const params = conditions.map(([, values]) => values);
+      expect(params).toContainEqual({ searchTerm0_0: '%پژو%' });
+      // A number goes in with both kinds of digits.
+      expect(params).toContainEqual({ searchTerm1_0: '%206%' });
+      expect(params).toContainEqual({ searchTerm1_1: '%۲۰۶%' });
+
+      const [sql] = conditions.find(
+        ([, values]) =>
+          (values as Record<string, unknown> | undefined)?.searchTerm1_0,
+      )!;
+      expect(sql).toContain('product.title LIKE :searchTerm1_0');
+      expect(sql).toContain('pav.value_text LIKE :searchTerm1_0');
+      expect(sql).toContain('sc.title LIKE :searchTerm1_0');
     });
 
     it('selects a cover image instead of every image', async () => {

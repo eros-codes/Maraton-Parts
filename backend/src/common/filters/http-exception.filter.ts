@@ -52,6 +52,14 @@ export class HttpExceptionFilter implements ExceptionFilter {
       }
     }
 
+    // Rate limits being hit are worth watching: a burst of these from one
+    // address is someone guessing or scraping.
+    if (statusCode === 429) {
+      this.logger.warn(
+        `429 ${request?.method} ${request?.path} from ${request?.ip ?? 'unknown'}`,
+      );
+    }
+
     if (!isHttpException) {
       this.logger.error(this.describe(exception, request));
       Sentry.captureException(exception);

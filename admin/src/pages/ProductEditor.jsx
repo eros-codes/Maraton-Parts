@@ -817,7 +817,17 @@ export default function ProductEditor({ mode, productId, initialTab, onClose, on
                 <div className="grid cols-4">
                   {shownImages.map((image, index) => (
                     <div className="card card-pad stack" key={image.key} style={{ gap: 8 }}>
-                      <img src={image.src} alt="" style={{ height: 110, objectFit: 'contain' }} />
+                      {/* Square and zoomed to fill, exactly as the shop shows it. */}
+                      <img
+                        src={image.src}
+                        alt=""
+                        style={{
+                          width: '100%',
+                          aspectRatio: '1 / 1',
+                          objectFit: 'cover',
+                          borderRadius: 'var(--radius-sm)',
+                        }}
+                      />
                       {/* The first picture is the one every listing shows. */}
                       {index === 0 ? (
                         <span className="badge badge-success" style={{ alignSelf: 'center' }}>

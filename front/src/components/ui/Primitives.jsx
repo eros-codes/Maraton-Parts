@@ -95,12 +95,16 @@ export function Field({ label, error, hint, children, id }) {
 export function Price({ now, was, off, size }) {
   return (
     <div className="price">
-      {off > 0 ? <span className="price-off">٪{toPersianDigits(off)}</span> : null}
       <span className="price-now" style={size ? { fontSize: size } : undefined}>
         {formatToman(now)}
       </span>
+      {/* The old price and its discount sit together, so the percent reads as
+          "this much off that number". */}
       {was && was > now ? (
-        <span className="price-was">{formatToman(was, { withUnit: false })}</span>
+        <span className="price-old">
+          <span className="price-was">{formatToman(was, { withUnit: false })}</span>
+          {off > 0 ? <span className="price-off">٪{toPersianDigits(off)}</span> : null}
+        </span>
       ) : null}
     </div>
   );

@@ -3,6 +3,7 @@ import {
   HttpStatus,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
@@ -23,6 +24,7 @@ import {
 import { lockUserRow } from './utils/lock-user-row';
 import { isDemoMode, isLockedDemoAccount } from '../common/demo/demo-accounts';
 import { AppError } from '../common/errors/app-error';
+import { SecurityEventsService } from '../audit/security-events.service';
 import { PaginatedResult } from '../common/interfaces/paginated-result.interface';
 import { escapeLikePattern } from '../products/utils/product-search';
 import { toAsciiDigits } from '../common/validation/normalize';
@@ -48,7 +50,21 @@ export class UsersService {
     private readonly refreshTokenRepository: Repository<RefreshToken>,
     private readonly dataSource: DataSource,
     private readonly auditService: AuditService,
+    @Optional() private readonly securityEvents?: SecurityEventsService,
   ) {}
+
+  // A new admin is as much access as the shop has: logged as a security
+  // event and sent to the owner straight away.
+  private async announceNewAdmin(
+    user: { id: number; mobile?: string | null },
+    actor?: AuditActor,
+  ): Promise<void> {
+    await this.securityEvents?.record(
+      'security.admin_granted',
+      { key: `user:${user.id}`, userId: user.id, by: actor?.userId ?? null },
+      { alert: 'admin_granted', subject: user.mobile ?? `#${user.id}` },
+    );
+  }
 
   // Staff creating an account from the panel. Recorded in the audit log -
   // above all when it is another admin, which is as much access as a role
@@ -79,6 +95,9 @@ export class UsersService {
         role: saved.role ?? createUserDto.role ?? userRoleEnum.NormalUser,
       },
     });
+    if (saved.role === userRoleEnum.AdminUser) {
+      await this.announceNewAdmin(saved, actor);
+    }
 
     return this.findOne(saved.id);
   }
@@ -262,6 +281,13 @@ export class UsersService {
       actor,
       changes: { role: { from: before?.role ?? null, to: role } },
     });
+    if (role === userRoleEnum.AdminUser && before?.role !== role) {
+      const promoted = await this.userRepository.findOne({
+        select: { id: true, mobile: true },
+        where: { id },
+      });
+      await this.announceNewAdmin(promoted ?? { id }, actor);
+    }
 
     return await this.findOne(id);
   }
@@ -271,6 +297,19 @@ export class UsersService {
     const user = await this.userRepository.findOneBy({ id });
     if (!user) {
       throw new NotFoundException(`Could not find user ${id}`);
+    }
+    // Same rule as taking the role away: deleting the only admin (their
+    // own account included) would leave a shop nobody can run.
+    if (user.role === userRoleEnum.AdminUser) {
+      const admins = await this.userRepository.count({
+        where: { role: userRoleEnum.AdminUser },
+      });
+      if (admins <= 1) {
+        throw AppError.conflict(
+          ErrorCodes.LAST_ADMIN,
+          'This is the only admin account - make someone else an admin first',
+        );
+      }
     }
 
     const anonymizedPassword = await bcrypt.hash(randomUUID(), 10);

@@ -86,7 +86,6 @@ export default function ProductCard({ product }) {
           )}
 
           <div className="product-flags">
-            {off > 0 ? <span className="flag flag-off">٪{toPersianDigits(off)}</span> : null}
             {Number(product.sales_count ?? 0) >= HOT_SALES_THRESHOLD ? (
               <span className="flag flag-hot">پرفروش</span>
             ) : null}
@@ -142,7 +141,10 @@ export default function ProductCard({ product }) {
         <div className="product-price">
           <div className="pp-top">
             {inStock && off > 0 ? (
-              <span className="pp-was">{formatToman(was, { withUnit: false })}</span>
+              <>
+                <span className="pp-was">{formatToman(was, { withUnit: false })}</span>
+                <span className="pp-off">٪{toPersianDigits(off)}</span>
+              </>
             ) : null}
           </div>
 

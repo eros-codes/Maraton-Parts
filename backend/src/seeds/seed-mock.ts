@@ -620,9 +620,15 @@ async function seed() {
 
     // ---------- discount codes ----------
     const codes = dataSource.getRepository(DiscountCode);
-    const bearingsCategory = await dataSource
-      .getRepository(Category)
-      .findOne({ where: { slug: 'bearings' } });
+    const bearingCategories = await dataSource.getRepository(Category).find({
+      where: {
+        slug: In([
+          'bearings-passenger',
+          'bearings-heavy',
+          'bearings-industrial',
+        ]),
+      },
+    });
     const beltCategories = await dataSource.getRepository(Category).find({
       where: { slug: In(['timing-belt-single', 'timing-belt-kits']) },
     });
@@ -667,7 +673,7 @@ async function seed() {
         min_order_amount: 1_500_000,
       }),
     );
-    if (bearingsCategory) {
+    if (bearingCategories.length) {
       await codes.save(
         codes.create({
           code: 'BEARING15',
@@ -675,7 +681,7 @@ async function seed() {
           type: DiscountTypeEnum.Percent,
           off_percent: 15,
           max_discount_amount: 500_000,
-          categories: [bearingsCategory],
+          categories: bearingCategories,
           starts_at: new Date(NOW + 3 * DAY),
           expires_at: new Date(NOW + 33 * DAY),
         }),

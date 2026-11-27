@@ -504,6 +504,12 @@ ul {
   text-decoration: line-through;
 }
 
+.price-old {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .price-off {
   padding: 2px 8px;
   border-radius: var(--radius-pill);

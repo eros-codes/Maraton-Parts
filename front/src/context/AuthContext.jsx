@@ -110,6 +110,13 @@ export function AuthProvider({ children }) {
   const login = useCallback(
     async (mobile, password) => {
       const data = await api.post('/auth/login', { mobile, password });
+      // An admin account with two-step sign-in: the code is entered in the
+      // panel, which is where staff work anyway.
+      if (data?.twoFactor) {
+        const error = new Error('two-step sign-in');
+        error.code = 'ADMIN_USE_PANEL';
+        throw error;
+      }
       setAccessToken(data.accessToken);
       const identity = readToken(data.accessToken);
       setUser(identity);

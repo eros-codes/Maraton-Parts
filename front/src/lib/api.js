@@ -114,7 +114,10 @@ async function refreshSession() {
         const response = await fetch(`${BASE_URL}/auth/refresh`, {
           method: 'POST',
           credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
         });
         if (!response.ok) throw new Error('refresh failed');
         const body = await parse(response);
@@ -137,7 +140,11 @@ export async function request(
   path,
   { method = 'GET', body, auth = false, headers = {}, retry = true, signal } = {},
 ) {
-  const requestHeaders = { ...headers };
+  // Proves the call comes from this app and not from a page on another
+  // site: a browser will not attach a custom header cross-origin without a
+  // CORS preflight, which the API refuses. Refresh and logout, which carry
+  // only the cookie, are rejected without it (CSRF protection).
+  const requestHeaders = { 'X-Requested-With': 'XMLHttpRequest', ...headers };
   if (body !== undefined && !(body instanceof FormData)) {
     requestHeaders['Content-Type'] = 'application/json';
   }

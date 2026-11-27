@@ -35,12 +35,16 @@ export interface CategoryNode {
   children: Array<{ slug: string; title: string }>;
 }
 
-// Bearings keep the price list's own sections. The car tree is a second way
-// in: a product sits in its part category and in every car it fits.
+// Bearings come under three parents by what they go into: passenger cars
+// (with the price list's own sections under it), heavy vehicles and
+// industry. One bearing can sit under all three - a 6000-series bearing
+// turns a car's alternator, a truck's gearbox and an electric motor alike -
+// and stays one product with one price and one stock. The car tree is
+// another way in: a product also sits in every car it fits.
 export const CATEGORY_TREE: CategoryNode[] = [
   {
-    slug: 'bearings',
-    title: 'بلبرینگ',
+    slug: 'bearings-passenger',
+    title: 'بلبرینگ خودرو سواری',
     children: [
       { slug: 'wheel-bearings', title: 'بلبرینگ چرخ و توپی' },
       { slug: 'axle-bearings', title: 'بلبرینگ اکسل (ژامبون)' },
@@ -51,6 +55,8 @@ export const CATEGORY_TREE: CategoryNode[] = [
       { slug: 'other-bearings', title: 'سایر بلبرینگ‌ها' },
     ],
   },
+  { slug: 'bearings-heavy', title: 'بلبرینگ خودرو سنگین', children: [] },
+  { slug: 'bearings-industrial', title: 'بلبرینگ صنعتی', children: [] },
   {
     slug: 'timing-belts',
     title: 'تسمه تایم',
@@ -87,6 +93,8 @@ export type PartKind =
   | 'belt'
   | 'belt-kit';
 
+export type BearingUse = 'heavy' | 'industrial';
+
 export interface CatalogProduct {
   slug: string;
   // The price list's row, for bearings.
@@ -94,6 +102,8 @@ export interface CatalogProduct {
   partNumber: string;
   title: string;
   category: string;
+  // The other bearing parents it is filed under too.
+  uses?: BearingUse[];
   kind: PartKind;
   brand: 'ibtico' | 'dayco' | 'zpz';
   origin: 'ایران - تبریز' | 'ایتالیا';
@@ -291,7 +301,49 @@ export const BELTS: CatalogProduct[] = [
   },
 ];
 
-export const CATALOGUE: CatalogProduct[] = [...BEARINGS, ...BELTS];
+// Bearings that are also heavy-vehicle or industrial parts, by slug.
+const INDUSTRIAL = [
+  '6003-2rs-c3-roll',
+  '6003-2rs-c3-box',
+  '6006-2rs',
+  '6006-2rs-c3',
+  '6006-2rs-c3-kn',
+  '6202-16-2rs',
+  '6202-2rs-c3',
+  '6203-2rs-c3-tn',
+  '6203-2rs-c3-h14-kn',
+  '6208-c4',
+  '6303-2rs-c3',
+  '6304-2rs-c3',
+  '6305-2rs-c3',
+  '6306-2rs-c3',
+  '6308-2rs',
+];
+const HEAVY = [
+  '6208-c4',
+  '6306-2rs-c3',
+  '6308-2rs',
+  '1252-l-p6',
+  '32011-p6',
+  '33205-p6',
+];
+
+export const CATALOGUE: CatalogProduct[] = [...BEARINGS, ...BELTS].map(
+  (item) => {
+    const uses: BearingUse[] = [];
+    if (HEAVY.includes(item.slug)) uses.push('heavy');
+    if (INDUSTRIAL.includes(item.slug)) uses.push('industrial');
+    return uses.length ? { ...item, uses } : item;
+  },
+);
+
+// Every slug named above has to be a product, or a typo would quietly
+// leave a bearing out of its category.
+for (const slug of [...INDUSTRIAL, ...HEAVY]) {
+  if (!CATALOGUE.some((item) => item.slug === slug)) {
+    throw new Error(`catalog-data: no product with slug "${slug}"`);
+  }
+}
 
 const KIND_TEXT: Record<PartKind, string> = {
   'wheel-ball':

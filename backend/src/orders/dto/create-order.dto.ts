@@ -9,6 +9,7 @@ import {
   Max,
   Min,
   ValidateNested,
+  MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { MAX_INT32 } from '../../common/constants/limits';
@@ -35,6 +36,9 @@ export class CreateOrderDto {
 
   @IsOptional()
   @IsString()
+  // Codes are short; a megabyte "code" is only a way to make the server
+  // search for one.
+  @MaxLength(64)
   discountCode?: string;
 
   @IsOptional()

@@ -75,7 +75,14 @@ done
 [[ -n ${TRUST_PROXY:-} ]] && ok "TRUST_PROXY is set" ||
   fail "TRUST_PROXY empty - behind nginx every visitor shares one IP for the rate limits"
 [[ ${SWAGGER_ENABLED:-false} != true ]] && ok "API docs are off" ||
-  warn "SWAGGER_ENABLED=true - the API docs are public"
+  warn "SWAGGER_ENABLED=true - the API docs are published (behind SWAGGER_USER/SWAGGER_PASSWORD)"
+[[ ${ADMIN_TWO_FACTOR:-} != optional ]] && ok "every admin signs in with a code from an authenticator app" ||
+  fail "ADMIN_TWO_FACTOR=optional - remove the line: admins without two-step sign-in are one leaked password from the whole shop"
+if { is_set SECURITY_ALERT_MOBILES && is_set SMSIR_SECURITY_ALERT_TEMPLATE_ID; } || { is_set ALERT_BOT_TOKEN && is_set ALERT_BOT_CHAT_ID; }; then
+  ok "security alerts reach the owner"
+else
+  warn "no security alert channel - set SECURITY_ALERT_MOBILES + SMSIR_SECURITY_ALERT_TEMPLATE_ID, or ALERT_BOT_TOKEN + ALERT_BOT_CHAT_ID"
+fi
 is_set SENTRY_DSN && ok "Sentry error reporting is on" ||
   warn "SENTRY_DSN empty - server errors reach nobody but the journal"
 
@@ -122,6 +129,33 @@ elif ((demo_users > 0)); then
   fail "$demo_users demo account(s) (09120000001-4) still exist, with the password from the portfolio page - delete them"
 else
   ok "no demo accounts"
+fi
+[[ ${DB_USERNAME:-} != root ]] && ok "the API uses its own database user, not root" ||
+  fail "DB_USERNAME=root - create a user with rights on this one database only (DEPLOY.md, section 3)"
+
+echo
+echo "Network"
+# Only nginx may be reachable from outside: the API and MySQL must listen
+# on this machine alone, or anyone can skip HTTPS and the rate limits.
+listening=$(ss -Hltn 2>/dev/null)
+check_local_only() {
+  local port=$1 name=$2
+  local lines
+  lines=$(awk -v p=":$port" '$4 ~ p"$" {print $4}' <<<"$listening")
+  if [[ -z $lines ]]; then
+    warn "nothing listens on port $port ($name) - is it running?"
+  elif grep -qvE '^(127\.0\.0\.1|\[::1\]):' <<<"$lines"; then
+    fail "$name listens on $(tr '\n' ' ' <<<"$lines")- bind it to 127.0.0.1 only"
+  else
+    ok "$name listens on this machine only"
+  fi
+}
+check_local_only "${PORT:-3000}" "the API"
+check_local_only 3306 "MySQL"
+if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
+  ok "the firewall (ufw) is on"
+else
+  warn "ufw is not active - sudo ufw allow OpenSSH && sudo ufw allow 'Nginx Full' && sudo ufw enable"
 fi
 
 echo

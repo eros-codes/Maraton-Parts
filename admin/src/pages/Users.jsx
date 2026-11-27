@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, ShieldCheck, ShoppingBag, Users as UsersIcon, Wallet } from 'lucide-react';
+import {
+  KeyRound,
+  Plus,
+  ShieldCheck,
+  ShoppingBag,
+  Users as UsersIcon,
+  Wallet,
+} from 'lucide-react';
 import { api, buildQuery, toPage } from '../lib/api';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
@@ -29,6 +36,8 @@ export default function Users() {
   // Granting or taking away admin rights is asked about first: it was one
   // click, right next to "wallet", with nothing to undo it.
   const [roleChange, setRoleChange] = useState(null);
+  // Another admin who lost the phone with their authenticator app.
+  const [twoFactorReset, setTwoFactorReset] = useState(null);
   const [charged, setCharged] = useState(0);
   // Charge or withdraw. Taking money out (paying a balance back to the
   // customer's card, undoing a mistaken charge) had no place in the panel.
@@ -81,6 +90,19 @@ export default function Users() {
       toast.success('نقش کاربر تغییر کرد؛ نشست‌های او بسته شد');
       setRoleChange(null);
       load();
+    } catch (error) {
+      toast.error(translateError(error));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const resetTwoFactor = async () => {
+    setSaving(true);
+    try {
+      await api.delete(`/auth/2fa/users/${twoFactorReset.id}`, undefined, { auth: true });
+      toast.success('ورود دومرحله‌ای این مدیر ریست شد');
+      setTwoFactorReset(null);
     } catch (error) {
       toast.error(translateError(error));
     } finally {
@@ -264,6 +286,17 @@ export default function Users() {
                           <ShieldCheck size={14} />
                           {user.role === 'admin' ? 'سلب دسترسی مدیر' : 'مدیر کردن'}
                         </Button>
+                        {user.role === 'admin' && String(user.id) !== String(me?.id) ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            title="برای مدیری که گوشی برنامهٔ احراز هویتش را گم کرده"
+                            onClick={() => setTwoFactorReset(user)}
+                          >
+                            <KeyRound size={14} />
+                            ریست ورود دومرحله‌ای
+                          </Button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -408,6 +441,19 @@ export default function Users() {
           confirmLabel={roleChange.role === 'admin' ? 'مدیر شود' : 'سلب دسترسی'}
           onConfirm={changeRole}
           onClose={() => setRoleChange(null)}
+          loading={saving}
+        />
+      ) : null}
+
+      {twoFactorReset ? (
+        <Confirm
+          title="ریست ورود دومرحله‌ای"
+          message={`ورود دومرحله‌ای «${
+            twoFactorReset.display_name ?? twoFactorReset.mobile
+          }» برداشته می‌شود و دفعهٔ بعد باید دوباره برنامهٔ احراز هویت را راه بیندازد. فقط وقتی انجام دهید که مطمئنید خود او گوشی‌اش را گم کرده - این کار ثبت و به مالک فروشگاه اطلاع داده می‌شود.`}
+          confirmLabel="ریست شود"
+          onConfirm={resetTwoFactor}
+          onClose={() => setTwoFactorReset(null)}
           loading={saving}
         />
       ) : null}

@@ -69,10 +69,36 @@ sudo mysql
 ```sql
 CREATE DATABASE maraton_parts CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER 'maraton_parts'@'localhost' IDENTIFIED BY 'یک-رمز-قوی';
-GRANT ALL PRIVILEGES ON maraton_parts.* TO 'maraton_parts'@'localhost';
+-- فقط همین یک دیتابیس، و فقط کارهایی که برنامه و مایگریشن‌ها لازم دارند
+-- (نه GRANT، نه FILE، نه دسترسی به دیتابیس‌های دیگر):
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP, REFERENCES,
+      CREATE TEMPORARY TABLES, LOCK TABLES, TRIGGER, SHOW VIEW, EVENT
+  ON maraton_parts.* TO 'maraton_parts'@'localhost';
 FLUSH PRIVILEGES;
 EXIT;
 ```
+
+رمز دیتابیس حداقل ۱۲ کاراکتر باشد (برنامه در production کوتاه‌ترش را قبول نمی‌کند). با این بساز:
+
+```bash
+openssl rand -base64 24
+```
+
+MySQL باید فقط روی خود سرور گوش بدهد. در `/etc/mysql/mysql.conf.d/mysqld.cnf` این خط باشد و بعد `sudo systemctl restart mysql`:
+
+```
+bind-address = 127.0.0.1
+```
+
+فایروال هم فقط SSH و nginx را باز بگذارد:
+
+```bash
+sudo ufw allow OpenSSH
+sudo ufw allow 'Nginx Full'
+sudo ufw enable
+```
+
+API در production خودش فقط روی `127.0.0.1:3000` گوش می‌دهد و درخواست HTTP ساده (بدون HTTPS) را با 403 رد می‌کند؛ `launch-check.sh` همهٔ این‌ها را چک می‌کند.
 
 ---
 
@@ -298,6 +324,19 @@ sudo tail -f /var/log/nginx/error.log          # nginx
 3. `SMSIR_API_KEY` و `SMSIR_OTP_TEMPLATE_ID` از پنل sms.ir، و ترجیحاً `SMSIR_ACCOUNT_EXISTS_TEMPLATE_ID`.
 4. مشخصات کسب‌وکار (`SHOP_*`) و اینماد (`ENAMAD_ID`، `ENAMAD_CODE`) برای صفحه‌های تماس و قوانین.
 5. `SENTRY_DSN`، تا خطاهای سرور فقط در لاگ گم نشوند.
+6. هشدار امنیتی (یکی از دو راه، یا هر دو):
+   - پیامک: یک قالب در پنل sms.ir با یک پارامتر `EVENT` (مثلاً «هشدار امنیتی ماراتون پارتز: #EVENT#»)، شناسه‌اش در `SMSIR_SECURITY_ALERT_TEMPLATE_ID` و شماره‌ی خودت در `SECURITY_ALERT_MOBILES`.
+   - بات بله: در بله به `@botfather` پیام بده و یک بات بساز. توکنش را در `ALERT_BOT_TOKEN` بگذار، به بات خودت یک پیام بده، و شناسه‌ی چتت را در `ALERT_BOT_CHAT_ID` بگذار. برای تلگرام (فقط روی سرور خارج از ایران) `ALERT_BOT_API=https://api.telegram.org` را هم اضافه کن.
+
+   وقتی حساب یک مدیر با رمز اشتباه قفل شود، نشست یک مدیر دزدیده شده به نظر برسد، کسی مدیر شود، یا ورود دومرحله‌ای خاموش یا ریست شود، هشدار فوراً می‌رسد.
+
+**ورود دومرحله‌ای مدیرها** بدون `DEMO_MODE` خودبه‌خود اجباری است. اولین ورود هر مدیر بعد از این تغییر، قبل از باز شدن پنل یک کد QR نشان می‌دهد. آن را با Google Authenticator یا Microsoft Authenticator اسکن کن و کد ۶ رقمی را وارد کن. از آن به بعد، بعد از رمز عبور همین کد پرسیده می‌شود. اگر گوشی یک مدیر گم شد، مدیر دیگری از صفحه‌ی «کاربران» ورودش را ریست می‌کند. اگر تنها مدیر هستی، روی سرور بزن:
+
+```bash
+sudo -u maratonparts bash -c 'cd /srv/maraton-parts/backend && set -a && . /etc/maraton-parts/backend.env && set +a && npm run admin:reset-2fa -- 09xxxxxxxxx'
+```
+
+کلید برنامه‌ی احراز هویت رمزنگاری‌شده در دیتابیس ذخیره می‌شود و رمز آن از `OTP_HASH_SECRET` گرفته می‌شود. اگر این مقدار را عوض کنی، مدیرها در ورود بعدی دوباره QR را اسکن می‌کنند.
 
 و روی سرور:
 

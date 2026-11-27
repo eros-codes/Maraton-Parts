@@ -77,7 +77,7 @@ export default function AccountLayout() {
               <User size={20} />
             </span>
             <div>
-              <div className="strong small">{user?.display_name ?? 'کاربر تل‌کال'}</div>
+              <div className="strong small">{user?.display_name ?? 'کاربر ماراتون پارتز'}</div>
               <div className="tiny muted">{user?.mobile}</div>
             </div>
           </div>

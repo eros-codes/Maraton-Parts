@@ -37,6 +37,6 @@ export function useShopInfo() {
     ...shop,
     business,
     // Who "we" are on these pages: the registered name once it is set.
-    name: business.legalName ?? 'تل‌کال',
+    name: business.legalName ?? 'ماراتون پارتز',
   };
 }

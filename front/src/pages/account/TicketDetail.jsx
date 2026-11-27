@@ -183,7 +183,7 @@ export default function TicketDetail() {
                 ) : (
                   <span className="row tiny strong" style={{ gap: 5, color: 'var(--brand-700)' }}>
                     <Headphones size={14} />
-                    پشتیبانی تل‌کال
+                    پشتیبانی ماراتون پارتز
                   </span>
                 )}
                 <span className="tiny muted">{formatDateTime(message.created_at)}</span>

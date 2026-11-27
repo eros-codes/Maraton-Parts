@@ -7,13 +7,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import {
-  api,
-  getAccessToken,
-  onSessionLost,
-  onTokenChange,
-  setAccessToken,
-} from '../lib/api';
+import { api, getAccessToken, onSessionLost, onTokenChange, setAccessToken } from '../lib/api';
 
 const AuthContext = createContext(null);
 
@@ -124,23 +118,49 @@ export function AuthProvider({ children }) {
   // has already set a refresh cookie for this host by the time the role is
   // known, so the session is ended on the server, not just forgotten here -
   // reloading the page used to bring the customer straight back in.
-  const login = useCallback(
-    async (mobile, password) => {
-      const data = await api.post('/auth/login', { mobile, password });
-      const identity = readToken(data.accessToken);
+  // The session, once a sign-in has passed every step.
+  const startSession = useCallback(
+    async (accessToken) => {
+      const identity = readToken(accessToken);
       if (identity?.role !== 'admin') {
-        setAccessToken(data.accessToken);
+        setAccessToken(accessToken);
         await endForeignSession();
         const error = new Error('not an admin');
         error.code = 'FORBIDDEN';
         throw error;
       }
-      setAccessToken(data.accessToken);
+      setAccessToken(accessToken);
       setUser(identity);
       void loadProfile(identity);
       return identity;
     },
     [endForeignSession, loadProfile],
+  );
+
+  // Step two for an admin with two-step sign-in (see login).
+  const completeTwoFactor = useCallback(
+    async (challengeToken, code) => {
+      const data = await api.post('/auth/2fa/login', { challengeToken, code });
+      return startSession(data.accessToken);
+    },
+    [startSession],
+  );
+
+  const login = useCallback(
+    async (mobile, password) => {
+      const data = await api.post('/auth/login', { mobile, password });
+      // An admin with two-step sign-in gets no session yet: the page asks
+      // for the code (and, the first time, shows the QR to scan).
+      if (data?.twoFactor) {
+        return {
+          twoFactor: data.twoFactor,
+          challengeToken: data.challengeToken,
+          setup: data.setup,
+        };
+      }
+      return startSession(data.accessToken);
+    },
+    [startSession],
   );
 
   const logout = useCallback(async () => {
@@ -154,8 +174,8 @@ export function AuthProvider({ children }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, ready, isAuthenticated: !!user, login, logout }),
-    [user, ready, login, logout],
+    () => ({ user, ready, isAuthenticated: !!user, login, completeTwoFactor, logout }),
+    [user, ready, login, completeTwoFactor, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

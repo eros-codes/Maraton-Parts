@@ -55,6 +55,12 @@ const MESSAGES = {
   DISCOUNT_NOT_APPLICABLE: 'این کد به کالاهای سبد شما تعلق نمی‌گیرد.',
 
   INVALID_CREDENTIALS: 'شماره موبایل یا رمز عبور درست نیست.',
+  ADMIN_USE_PANEL:
+    'این حساب مدیر است و ورود دومرحله‌ای دارد؛ لطفاً از پنل مدیریت وارد شوید.',
+  ACCOUNT_LOCKED:
+    'رمز عبور چند بار اشتباه وارد شد و ورود با رمز برای این شماره موقتاً قفل است. می‌توانید با «فراموشی رمز» و کد پیامکی همین حالا وارد شوید.',
+  CSRF_REJECTED: 'درخواست از سمت خود سایت نبود؛ صفحه را تازه کنید و دوباره امتحان کنید.',
+  HTTPS_REQUIRED: 'اتصال امن نیست؛ سایت را با https باز کنید.',
   OTP_INCORRECT: 'کد واردشده درست نیست.',
   OTP_EXPIRED: 'کد منقضی شده است؛ لطفاً کد جدید بگیرید.',
   OTP_ATTEMPTS_EXCEEDED: 'تعداد تلاش‌ها زیاد بود؛ لطفاً کد جدید بگیرید.',
@@ -92,6 +98,10 @@ function withDetails(code, details) {
   }
   if (code === 'INSUFFICIENT_WALLET_BALANCE' && details.balance !== undefined) {
     return 'موجودی کیف پول کافی نیست؛ ابتدا کیف پول را شارژ کنید.';
+  }
+  if (code === 'ACCOUNT_LOCKED' && details.retryAfter !== undefined) {
+    const minutes = Math.ceil(Number(details.retryAfter) / 60);
+    return `رمز عبور چند بار اشتباه وارد شد؛ ورود با رمز برای این شماره ${minutes.toLocaleString('fa-IR')} دقیقه قفل است. با «فراموشی رمز» و کد پیامکی می‌توانید همین حالا وارد شوید.`;
   }
   if (code === 'OTP_INCORRECT' && details.attemptsLeft !== undefined) {
     return `کد واردشده درست نیست. ${details.attemptsLeft} تلاش دیگر باقی مانده است.`;
