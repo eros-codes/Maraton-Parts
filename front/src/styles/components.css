@@ -89,6 +89,11 @@
   border: 1px solid var(--line-strong);
   background: var(--surface-2);
   transition: all 0.15s ease;
+  margin-top: 10px;
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-content: center;
 }
 
 .search input:focus {
@@ -471,6 +476,11 @@
   gap: 12px;
   padding: 18px 20px;
   border-inline-start: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.trust:nth-child(3){
+  border-bottom: none;
 }
 
 .trust-item:first-child {
@@ -692,14 +702,20 @@
 
 /* Discount pill right beside the struck-through price. */
 .pp-off {
-  padding: 1px 7px;
-  border-radius: var(--radius-pill);
-  background: var(--accent-600);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.6;
-  white-space: nowrap;
+height: 20px;
+padding: 2px 5px;
+border-radius: var(--radius-pill);
+background: var(--accent-600);
+color: #fff;
+font-size: 11px;
+font-weight: 700;
+white-space: nowrap;
+text-align: center;
+display: flex;
+flex-direction: row;
+justify-content: center;
+align-content: center;
+line-height: 20px;
 }
 
 .pp-was {
